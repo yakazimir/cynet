@@ -1,3 +1,7 @@
+### NOTE : THIS ORIGINAL CODE IS TAKEN AND COPIED FROM FROM DYNET
+### PLEASE SEE HERE: https://github.com/clab/dynet/blob/master/python/_dynet.pyx
+
+
 ## all the dynet stuff 
 
 # on numpy arrays, see: https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
