@@ -77,7 +77,7 @@ def build_dynet(config):
     ]
 
 ## cynet sources 
-CY = [
+CYNET = [
     Extension("cynet/Seq2Seq",
                   ["cynet/Seq2Seq.pyx"],
                   language="c++",
@@ -122,6 +122,6 @@ if __name__ == "__main__":
               packages=["cynet"],
               scripts=["run_cynet.sh"],
               ext_modules=cythonize(
-                  DYNET+CY
+                  DYNET+CYNET
               )
    )
