@@ -6,7 +6,7 @@ import logging
 from optparse import OptionGroup,OptionParser
 from cynet import _dynet as dy
 from cynet import global_config
-from cynet.Seq2Seq import main as seq2seq_main
+from cynet.Seq2Seq import run_seq2seq
 
 ## general configuration settings
 GEN = OptionGroup(global_config,"cynet.__main__")
@@ -45,7 +45,7 @@ if __name__ == "__main__":
         __setup_dynet(config,dy.DynetParams())
 
         ## now decide what to do
-        seq2seq_main()
+        run_seq2seq(config)
         
     except Exception,e:
         traceback.print_exc(file=sys.stdout)

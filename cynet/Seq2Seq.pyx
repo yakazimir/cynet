@@ -91,9 +91,12 @@ def params(config):
     
 
 
-def main():
+def run_seq2seq(config):
     """Main execution point for running a seq2seq model 
-
+    
+    :param config: the global configuration 
     """
     e = EncoderDecoder(10,10,10,10,10)
     print e
+
+    
