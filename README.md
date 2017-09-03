@@ -25,7 +25,6 @@ Quick Start
 
 Can be built in place by typing the following:
 
-    python setup.py build_ext --dynet=/path/to/dynet
-    --eigen=/path/to/eigen --boost=/path/to/boost. 
+    python setup.py build_ext --inplace --dynet=/path/to/dynet --eigen=/path/to/eigen --boost=/path/to/boost. 
 
 Requires Dynet >= 2.0
