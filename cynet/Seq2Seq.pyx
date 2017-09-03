@@ -15,6 +15,8 @@ from cynet._dynet cimport (
     ComputationGraph,
     ParameterCollection,
     LookupParameters,
+    LSTMBuilder,
+    Parameters,
     get_cg, ## to get direct access to computation graph 
 )
 
@@ -49,14 +51,19 @@ cdef class Seq2SeqModel(LoggableClass):
         """
         raise NotImplementedError
 
-cdef class EncoderDecoder(Seq2SeqModel):
+cdef class RNNSeq2Seq(Seq2SeqModel):
+    pass 
+
+cdef class EncoderDecoder(RNNSeq2Seq):
     """Simple encoder-decoder model implementation"""
 
-    def __init__(self,enc_layers,
-                     dec_layers,
-                     embedding_size,
-                     enc_state_size,
-                     dec_state_size):
+    def __init__(self,int enc_layers,
+                     int dec_layers,
+                     int embedding_size,
+                     int enc_state_size,
+                     int dec_state_size,
+                     int vocab_size,
+                     ):
         """Create a simple encoder decoder instance 
 
         :param enc_layers: the number of layers used by the encoder RNN 
@@ -68,7 +75,15 @@ cdef class EncoderDecoder(Seq2SeqModel):
         self.model = ParameterCollection()
 
         ## embedding parameters 
-        self.embeddings = self.model.add_lookup_parameters((10,embedding_size))
+        self.embeddings = self.model.add_lookup_parameters((vocab_size,embedding_size))
+
+        ## RNN encode and decoder models 
+        self.enc_rnn = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
+        self.dec_rnn = LSTMBuilder(dec_layers,embedding_size,dec_state_size,self.model)
+
+        ## output layer and bias for decoder RNN
+        self.output_w = self.model.add_parameters((vocab_size,dec_state_size))
+        self.output_b = self.model.add_parameters((vocab_size))
         
     @classmethod
     def from_config(cls,config):
@@ -81,7 +96,9 @@ cdef class EncoderDecoder(Seq2SeqModel):
                            config.dec_rnn_layers,
                            config.embedding_size,
                            config.enc_state_size,
-                           config.dec_state_size)
+                           config.dec_state_size,
+                           config.vocab_size,
+                           )
 
         return instance 
         
@@ -111,6 +128,11 @@ cdef class Seq2SeqLearner(LoggableClass):
         self.data  = data 
         self.cg = get_cg()
 
+
+    
+        
+    ## builder 
+
     @classmethod
     def from_config(cls,config):
         """Create a Seq2SeqLearner from configuration 
@@ -126,6 +148,9 @@ cdef class Seq2SeqLearner(LoggableClass):
         ## find the desired class
         nclass = NeuralModel(config.model)
         model = nclass.from_config(config)
+
+        ## find the desired trainer
+                
 
         return cls(model,data)
                 
@@ -186,6 +211,7 @@ def params(config):
     gen_group.add_option(
         "--dec_state_size",dest="dec_state_size",
         type=int,
+        default=64,
         help="The size of the decoder RNN states [default=64]"
     )
 

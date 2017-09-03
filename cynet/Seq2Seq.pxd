@@ -7,6 +7,8 @@ from cynet._dynet cimport (
     ComputationGraph,
     ParameterCollection,
     LookupParameters,
+    LSTMBuilder,
+    Parameters,
 )
 
 
@@ -23,7 +25,12 @@ cdef class Seq2SeqModel(LoggableClass):
     ## methods 
     cdef double get_loss(self, x_bold, y_bold)
 
-cdef class EncoderDecoder(Seq2SeqModel):
+cdef class RNNSeq2Seq(Seq2SeqModel):
+    cdef LSTMBuilder enc_rnn, dec_rnn
+    cdef Parameters output_w,output_b
+    
+
+cdef class EncoderDecoder(RNNSeq2Seq):
     pass
 
 cdef class AttentionModel(EncoderDecoder):
