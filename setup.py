@@ -78,16 +78,6 @@ def build_dynet(config):
 
 ## cynet sources 
 CY = [
-    Extension("cynet/Network",
-                  ["cynet/Network.pyx"],
-                  language='c++',
-                  extra_compile_args=["-std=c++11"],
-                  ),
-    Extension("cynet/Expression",
-                  ["cynet/Expression.pyx"],
-                  language='c++',
-                  extra_compile_args=["-std=c++11"],
-                  ),
     Extension("cynet/Seq2Seq",
                   ["cynet/Seq2Seq.pyx"],
                   language="c++",
