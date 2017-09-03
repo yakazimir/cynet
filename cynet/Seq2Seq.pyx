@@ -17,12 +17,16 @@ from cynet._dynet cimport (
     LookupParameters,
     LSTMBuilder,
     Parameters,
+    SimpleSGDTrainer,
+    MomentumSGDTrainer,
+    AdagradTrainer,
+    AdamTrainer,
     get_cg, ## to get direct access to computation graph 
 )
 
 cdef class LoggableClass:
 
-    @classmethod
+    @property
     def logger(self):
         """Logger instance associated with object"""
         level = ".".join([__name__,type(self).__name__])
@@ -118,20 +122,56 @@ cdef class AttentionModel(EncoderDecoder):
 cdef class Seq2SeqLearner(LoggableClass):
     """Class for training Seq2Seq models"""
 
-    def __init__(self,model,data):
+    def __init__(self,trainer,model,data):
         """Creates a seq2seq learner
 
         :param model: the underlying neural model 
         :param data: data instance and symbol tables 
         """
+        self.trainer = <Trainer>trainer 
         self.model = <Seq2SeqModel>model
         self.data  = data 
         self.cg = get_cg()
 
+    ## training methods
+    cpdef void train(self,config):
+        """Trian the model using data 
 
-    
-        
-    ## builder 
+        :param config: the global configuration 
+        """
+        self.logger.info('Beginning the training loop')
+        stime = time.time()
+
+        ## the main training
+        try: 
+            self._train(config.epochs,self.data.source,self.data.target)
+        except Exception,e:
+            self.logger.info(e,exc_info=True)
+        finally: 
+            self.logger.info('Finished training in %f seconds' % (time.time()-stime))
+
+    cdef int _train(self,int epochs,
+                        np.ndarray source,
+                        np.ndarray target,
+                        ) except -1:
+        """C training loop
+
+        :param epochs: the number of epochs or iterations 
+        :param source: the source data input 
+        :param target: the target data input 
+        """
+        cdef int data_point,epoch,data_size = source.shape[0]
+        cdef int[:] source_ex,target_ex
+
+        ## overall iteration 
+        for epoch in range(epochs):
+
+            ## go through each data point 
+            for data_point in range(data_size):
+                source_ex = source[data_point]
+                target_ex = target[data_point]
+
+    ## builder
 
     @classmethod
     def from_config(cls,config):
@@ -141,24 +181,32 @@ cdef class Seq2SeqLearner(LoggableClass):
         :param data: a data instance 
         :type data: cynet.util.DataManager
         """
+        cdef Seq2SeqModel model 
         ## build the data
         data = build_data(config)
         config.vocab_size = data.vocab_size
 
         ## find the desired class
         nclass = NeuralModel(config.model)
-        model = nclass.from_config(config)
+        model = <Seq2SeqModel>nclass.from_config(config)
 
         ## find the desired trainer
-                
+        trainer = TrainerModel(config,model.model)
 
-        return cls(model,data)
+        return cls(trainer,model,data)
                 
 
 ## factories
 
 MODELS = {
     "simple" : EncoderDecoder,
+}
+
+TRAINERS = {
+    "sgd"      : SimpleSGDTrainer,
+    "momentum" : MomentumSGDTrainer,
+    "adagrad"  : AdagradTrainer,
+    #"adam"     : AdamTrainer,
 }
 
 def NeuralModel(ntype):
@@ -172,6 +220,24 @@ def NeuralModel(ntype):
         raise ValueError('Unknown neural model')
     return nclass
 
+def TrainerModel(config,model):
+    """Factory method for selecting a particular trainer 
+
+    :param ttype: the type of trainer to use 
+    """
+    tname = config.trainer
+    tclass = TRAINERS.get(tname)
+    if tclass is None:
+        raise ValueError("Unknown trainer model")
+
+    if tname == "adagrad":
+        trainer = tclass(model,e0=config.lrate,edecay=config.weight_decay,eps=config.epsilon)
+    elif tname == "sgd":
+        trainer = tclass(model,e0=config.lrate,edecay=config.weight_decay)
+    elif tname == "momentum":
+        trainer = tclass(model,e0=config.lrate,edecay=config.weight_decay,mom=config.momentum)
+    return trainer 
+
 def params(config):
     """Parameters for building seq2seq modela 
 
@@ -180,6 +246,48 @@ def params(config):
     """
     gen_group = OptionGroup(config,"cynet.Seq2Seq.{EncoderDecoder,AttentionModel}","General Seq2Seq settings")
 
+    gen_group.add_option(
+        "--trainer",dest="trainer",
+        default="sgd",
+        type=str,
+        help="The type of trainer to use [default=sgd]"
+    )
+
+    gen_group.add_option(
+        "--lrate",dest="lrate",
+        default=0.1,
+        type=float,
+        help="The main learning rate parameter [default=1.0]"
+    )
+
+    gen_group.add_option(
+        "--weight_decay",dest="weight_decay",
+        default=0.0,
+        type=float,
+        help="The main weight decay parameter [default=0.0]"
+    )
+
+    gen_group.add_option(
+        "--epsilon",dest="epsilon",
+        default=1e-20,
+        type=float,
+        help="Epsilon paramater to prevent numerical instability [default=1e-20]"
+    )
+
+    gen_group.add_option(
+        "--momentum",dest="momentum",
+        default=0.9,
+        type=float,
+        help="Momentum value [default=0.9]"
+    )
+
+    gen_group.add_option(
+        "--epochs",dest="epochs",
+        default=10,
+        type=int,
+        help="The number of training iterations [default=10]"
+    )
+    
     gen_group.add_option(
         "--enc_rnn_layers",dest="enc_rnn_layers",
         default=1,
@@ -241,9 +349,14 @@ def run_seq2seq(config):
     
     :param config: the global configuration 
     """
+    logging.basicConfig(level=logging.INFO)
+    
     try: 
         learner = Seq2SeqLearner.from_config(config)
 
+        learner.train(config)
+        
+        
     except Exception,e:
         traceback.print_exc(file=sys.stderr)
 

@@ -43,3 +43,8 @@ cdef class Seq2SeqLearner(LoggableClass):
     cdef ComputationGraph cg
     cdef Seq2SeqModel model
     cdef object data
+    cdef Trainer trainer
+
+    ## method
+    cpdef void train(self,config)
+    cdef int _train(self,int epochs,np.ndarray source, np.ndarray target) except -1
