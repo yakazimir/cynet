@@ -35,3 +35,4 @@ cdef class AttentionModel(EncoderDecoder):
 cdef class Seq2SeqLearner(LoggableClass):
     cdef ComputationGraph cg
     cdef Seq2SeqModel model
+    cdef object data

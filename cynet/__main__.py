@@ -48,4 +48,4 @@ if __name__ == "__main__":
         run_seq2seq(config)
         
     except Exception,e:
-        traceback.print_exc(file=sys.stdout)
+        traceback.print_exc(file=sys.stderr)

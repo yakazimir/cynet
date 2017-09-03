@@ -1,4 +1,5 @@
-import time 
+import time
+import traceback
 from optparse import OptionParser,OptionGroup
 import logging
 import sys
@@ -100,14 +101,14 @@ cdef class AttentionModel(EncoderDecoder):
 cdef class Seq2SeqLearner(LoggableClass):
     """Class for training Seq2Seq models"""
 
-
-    def __init__(self,model):
+    def __init__(self,model,data):
         """Creates a seq2seq learner
 
         :param model: the underlying neural model 
-        :param computation_graph: the global computation graph 
+        :param data: data instance and symbol tables 
         """
-        self.model = <Seq2SeqModel>model 
+        self.model = <Seq2SeqModel>model
+        self.data  = data 
         self.cg = get_cg()
 
     @classmethod
@@ -115,9 +116,36 @@ cdef class Seq2SeqLearner(LoggableClass):
         """Create a Seq2SeqLearner from configuration 
 
         :param config: the main or global configuration 
+        :param data: a data instance 
+        :type data: cynet.util.DataManager
         """
-        pass
+        ## build the data
+        data = build_data(config)
+        config.vocab_size = data.vocab_size
 
+        ## find the desired class
+        nclass = NeuralModel(config.model)
+        model = nclass.from_config(config)
+
+        return cls(model,data)
+                
+
+## factories
+
+MODELS = {
+    "simple" : EncoderDecoder,
+}
+
+def NeuralModel(ntype):
+    """Factory method for getting a neural model
+
+    :param ntype: the type of neural model desired 
+    :raises: ValueError
+    """
+    nclass = MODELS.get(ntype,None)
+    if nclass is None:
+        raise ValueError('Unknown neural model')
+    return nclass
 
 def params(config):
     """Parameters for building seq2seq modela 
@@ -161,6 +189,13 @@ def params(config):
         help="The size of the decoder RNN states [default=64]"
     )
 
+    gen_group.add_option(
+        "--model",dest="model",
+        type=str,
+        default="simple",
+        help="The type of seq2seq model to use [default=simple]"
+    )
+
     config.add_option_group(gen_group)
 
     ##
@@ -180,7 +215,9 @@ def run_seq2seq(config):
     
     :param config: the global configuration 
     """
-    e = EncoderDecoder.from_config(config) 
-    print e
+    try: 
+        learner = Seq2SeqLearner.from_config(config)
 
-    
+    except Exception,e:
+        traceback.print_exc(file=sys.stderr)
+
