@@ -120,7 +120,7 @@ if __name__ == "__main__":
               description="Cynet: rewrite of dynet python Cython wrapper for direct use in Cython",
               platforms="any",
               packages=["cynet"],
-              scripts=["run_cynet.sh"],
+              scripts=["run_cynet"],
               ext_modules=cythonize(
                   DYNET+CYNET
               )
