@@ -1072,6 +1072,9 @@ def renew_cg(immediate_compute=False, check_validity=False, autobatching=None):
     """
     return _cg.renew(immediate_compute, check_validity, autobatching)
 
+cdef ComputationGraph get_cg():
+    return _cg
+
 def print_text_graphviz(): return _cg.print_graphviz()
 def cg_checkpoint(): 
     """

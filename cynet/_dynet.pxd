@@ -634,3 +634,5 @@ cdef class RMSPropTrainer(Trainer):
 
 cdef class AdamTrainer(Trainer):
     pass 
+
+cdef ComputationGraph get_cg()

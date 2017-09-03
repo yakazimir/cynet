@@ -1,10 +1,11 @@
 
+from optparse import OptionParser,OptionGroup
 import logging
 import sys
 cimport numpy as np
 import numpy as np
 cimport _dynet as dy
-import _dynet as dy
+#import _dynet as dy
 
 ## cython class identifiers 
 from cynet._dynet cimport (
@@ -13,6 +14,7 @@ from cynet._dynet cimport (
     ComputationGraph,
     ParameterCollection,
     LookupParameters,
+    get_cg,
 )
 
 
@@ -77,10 +79,21 @@ cdef class Seq2SeqLearner(LoggableClass):
     __call__ = train
 
 
+def params(config):
+    gen_group = OptionGroup(config,"cynet.Seq2Seq","General Seq2Seq settings")
 
+    gen_group.add_option(
+        "--loc",dest="loc",default="",
+        help="The location of data [default='']"
+    )
 
+    config.add_option_group(gen_group)
     
 
+
 def main():
+    """Main execution point for running a seq2seq model 
+
+    """
     e = EncoderDecoder(10,10,10,10,10)
     print e

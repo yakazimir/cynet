@@ -18,11 +18,10 @@ cdef class LoggableClass:
 
 cdef class Seq2SeqBase(LoggableClass):
     cdef ParameterCollection model
-    cdef LookupParameters embeddings
+    cdef LookupParameters i_embeddings
+    cdef LookupParameters o_embeddings
     ## methods 
     cdef double get_loss(self, x_bold, y_bold)
-
-
     
 ## learner
 
