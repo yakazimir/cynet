@@ -26,13 +26,14 @@ cdef class Seq2SeqModel(LoggableClass):
     cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg)
     cdef list _embed_x(self,int[:] x,ComputationGraph cg)
     cdef list _embed_z(self,int[:]z,ComputationGraph cg)
+    cdef list _run_enc_rnn(self,RNNState init_state,list input_vecs)
 
 cdef class RNNSeq2Seq(Seq2SeqModel):
     cdef LSTMBuilder enc_rnn, dec_rnn
     cdef Parameters output_w,output_b
     
 cdef class EncoderDecoder(RNNSeq2Seq):
-    pass
+    cdef list _encode_string(self,list embeddings)
 
 cdef class AttentionModel(EncoderDecoder):
     pass 

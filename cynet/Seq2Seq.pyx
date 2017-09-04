@@ -77,6 +77,21 @@ cdef class Seq2SeqModel(LoggableClass):
         cdef int i
         return [cg.lookup(embed,i,True) for i in x]
 
+    cdef list _run_enc_rnn(self,RNNState init_state,list input_vecs):
+        """Run the encoder RNN with some initial state and input vector 
+
+        :param init_state: the initial state 
+        :param input_vecs: the input vectors
+        """
+        cdef RNNState s = init_state
+        cdef list states,rnn_outputs
+
+        ## cythonize this?
+        states = s.add_inputs(input_vecs)
+        rnn_outputs = [st.output() for st in states]
+        return rnn_outputs
+            
+
 cdef class RNNSeq2Seq(Seq2SeqModel):
     pass 
 
@@ -135,7 +150,18 @@ cdef class EncoderDecoder(RNNSeq2Seq):
 
     ## c methods
 
-    
+    cdef list _encode_string(self,list embeddings):
+        """Get the representationf for the input by running through RNN
+
+        :param embeddings: the 
+        """
+        cdef LSTMBuilder enc_rnn = self.enc_rnn
+        cdef RNNState initial_state = enc_rnn.initial_state()
+        cdef list hidden_states
+
+        ## annotations or hidden states
+        hidden_states = self._run_enc_rnn(initial_state,embeddings)
+        return hidden_states
 
     cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
         """Compute loss for a given input and output
@@ -143,23 +169,25 @@ cdef class EncoderDecoder(RNNSeq2Seq):
         :param x_bold: input representation 
         :param y_bold: the output representation 
         """
-        cdef list x_encoded
+        cdef list x_encoded,loss = []
         cdef LSTMBuilder dec_rnn = self.dec_rnn
         cdef RNNState rnn_state
         cdef int w,zlen = z.shape[0]
+        cdef Expression encoded
         
         ## renew the computation graph directly 
         cg.renew(False,False,None)
 
         ## encode the input
         x_encoded = self._embed_x(x,cg)
+        encoded = self._encode_string(x_encoded)[-1]
 
         ##
         rnn_state = dec_rnn.initial_state()
 
         ## loop through the
         for w in range(zlen):
-            pass
+            rnn_state = rnn_state.add_input(encoded)
         
 cdef class AttentionModel(EncoderDecoder):
     
