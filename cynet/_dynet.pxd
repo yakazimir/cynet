@@ -636,3 +636,6 @@ cdef class AdamTrainer(Trainer):
     pass 
 
 cdef ComputationGraph get_cg()
+cpdef Expression softmax(Expression x)
+cpdef Expression log(Expression x)
+cpdef Expression esum(list xs)

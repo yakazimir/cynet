@@ -22,6 +22,9 @@ from cynet._dynet cimport (
     AdagradTrainer,
     AdamTrainer,
     RNNState,
+    softmax,
+    log,
+    esum,
     get_cg, ## to get direct access to computation graph 
 )
 
@@ -90,7 +93,22 @@ cdef class Seq2SeqModel(LoggableClass):
         states = s.add_inputs(input_vecs)
         rnn_outputs = [st.output() for st in states]
         return rnn_outputs
-            
+
+    cdef Expression _get_probs(self,Expression rnn_output):
+        """Get probabilities associated with RNN output
+        
+        :param rnn_output: the output of the rnn model 
+        """
+        cdef Expression output,bias,probs
+        cdef Parameters output_w = self.output_w
+        cdef Parameters output_b = self.output_b
+
+        output = output_w.expr(True)
+        bias = output_b.expr(True)
+
+        probs = softmax(output*rnn_output+bias)
+        return probs 
+        
 
 cdef class RNNSeq2Seq(Seq2SeqModel):
     pass 
@@ -122,7 +140,7 @@ cdef class EncoderDecoder(RNNSeq2Seq):
 
         ## RNN encode and decoder models 
         self.enc_rnn = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
-        self.dec_rnn = LSTMBuilder(dec_layers,embedding_size,dec_state_size,self.model)
+        self.dec_rnn = LSTMBuilder(dec_layers,enc_state_size,dec_state_size,self.model)
 
         ## output layer and bias for decoder RNN
         self.output_w = self.model.add_parameters((dec_vocab_size,dec_state_size))
@@ -173,7 +191,7 @@ cdef class EncoderDecoder(RNNSeq2Seq):
         cdef LSTMBuilder dec_rnn = self.dec_rnn
         cdef RNNState rnn_state
         cdef int w,zlen = z.shape[0]
-        cdef Expression encoded
+        cdef Expression encoded,probs,loss_expr,total_loss
         
         ## renew the computation graph directly 
         cg.renew(False,False,None)
@@ -188,6 +206,12 @@ cdef class EncoderDecoder(RNNSeq2Seq):
         ## loop through the
         for w in range(zlen):
             rnn_state = rnn_state.add_input(encoded)
+            probs = self._get_probs(rnn_state.output())
+            loss_expr = -log(cg.outputPicker(probs,z[w],0))
+            loss.append(loss_expr)
+
+        total_loss = esum(loss)
+        return total_loss
         
 cdef class AttentionModel(EncoderDecoder):
     
@@ -256,13 +280,15 @@ cdef class Seq2SeqLearner(LoggableClass):
         cdef np.ndarray target = train.target
         
         cdef Expression loss
-        cdef double loss_value
+        cdef double loss_value,epoch_loss
 
         ## neural network model
         cdef Seq2SeqModel model = <Seq2SeqModel>self.model
 
         ## overall iteration 
         for epoch in range(epochs):
+            estart = time.time()
+            epoch_loss = 0.0
 
             ## shuffle dataset?
             
@@ -273,14 +299,18 @@ cdef class Seq2SeqLearner(LoggableClass):
 
                 ## compute loss and back propogate
                 loss = model.get_loss(source[data_point],target[data_point],cg)
-                #loss = network.get_loss(input_string, output_string)
-                # loss_value = loss.value()
-                # loss.backward()
+                loss_value = loss.value()
+                loss.backward()
 
+                epoch_loss += loss_value 
                 ## do online update 
-                # trainer.update()
-                
+                trainer.update()
+
             trainer.update_epoch(1.0)
+            ## evaluate on validation?
+
+            self.logger.info('Finished iteration %d after %f seconds, train loss=%f' %\
+                                 (epoch+1,time.time()-estart,epoch_loss))
 
     ## builder
 
