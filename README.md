@@ -35,7 +35,7 @@ Then run the following:
     ./run_cynet [option] [--help]
 
 
-To run on the example dataset used by Tabl (above) just do the
+To run on the example dataset used by Tal (above) just do the
 following:
 
     ./run_cynet [--model attention]
