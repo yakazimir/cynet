@@ -1,3 +1,5 @@
+# cython: profile=True
+
 """ 
 
 Cythonized version of the models implemented in : https://talbaumel.github.io/attention/ 
