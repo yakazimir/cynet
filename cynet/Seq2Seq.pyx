@@ -8,7 +8,8 @@ import numpy as np
 cimport _dynet as dy
 from cynet.util import *
 
-## cython class identifiers 
+## cython class identifiers
+
 from cynet._dynet cimport (
     Expression,
     Trainer,
@@ -25,6 +26,8 @@ from cynet._dynet cimport (
     softmax,
     log,
     esum,
+    tanh,
+    concatenate,
     get_cg, ## to get direct access to computation graph 
 )
 
@@ -91,7 +94,7 @@ cdef class Seq2SeqModel(LoggableClass):
 
         ## cythonize this?
         states = s.add_inputs(input_vecs)
-        rnn_outputs = [st.output() for st in states]
+        rnn_outputs = [<Expression>st.output() for st in states]
         return rnn_outputs
 
     cdef Expression _get_probs(self,Expression rnn_output):
@@ -214,15 +217,97 @@ cdef class EncoderDecoder(RNNSeq2Seq):
         return total_loss
         
 cdef class AttentionModel(EncoderDecoder):
-    
-    @classmethod
-    def from_config(cls,config):
-        """Create an encoder decoder instance from configuration 
 
-        :param config: the global configuration 
-        :rtype: EncodeDecoder 
+    def __init__(self,int enc_layers,
+                     int dec_layers,
+                     int embedding_size,
+                     int enc_state_size,
+                     int dec_state_size,
+                     int enc_vocab_size,
+                     int dec_vocab_size,
+                     ):
+        """Create a simple encoder decoder instance 
+
+        :param enc_layers: the number of layers used by the encoder RNN 
+        :param dec_layers: the number of layers used by the decoder RNN
+        :param embedding_size: the size of the embeddings used 
+        :param enc_state_size: the size of the encoder RNN state size 
+        :parma dec_state_size: the size of decoder RNN state size  
         """
-        pass
+        EncoderDecoder.__init__(self,enc_layers,dec_layers,
+                                    embedding_size,
+                                    enc_state_size,dec_state_size,
+                                    enc_vocab_size,dec_vocab_size)
+        
+        self.attention_w1 = self.model.add_parameters((enc_state_size,enc_state_size))
+        self.attention_w2 = self.model.add_parameters((enc_state_size,dec_state_size))
+        self.attention_v = self.model.add_parameters((1,enc_state_size))
+        self.enc_state_size = enc_state_size
+
+    cdef Expression _attend(self,list input_vectors, RNNState state):
+        """Runs the attention network to compute attentions cores
+
+        :param input_vector 
+        """
+        cdef Parameters w1_o = self.attention_w1
+        cdef Parameters w2_o = self.attention_w2
+        cdef Parameters v_o = self.attention_v
+        cdef Expression w1,w2,v,w2dt,normed
+        cdef list weights = [],normalized = []
+        cdef int input_vector,vlen = len(input_vectors)
+
+        ## computations 
+        cdef Expression attention_weight,new_v
+
+        w1 = w1_o.expr(True)
+        w2 = w2_o.expr(True)
+        v = v_o.expr(True)
+
+        w2dt = w2*((<tuple>state.h())[-1])
+        
+        for input_vector in range(vlen):
+            attention_weight = v*tanh(w1*input_vectors[input_vector]+w2dt)
+            weights.append(attention_weight)
+
+        ## softmax normalization 
+        normed = softmax(concatenate(weights))
+        for input_vector in range(vlen):
+            new_v = input_vectors[input_vector]*normed[input_vector]
+            normalized.append(new_v)
+        return esum(normalized)
+                        
+    cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
+        """Compute loss for a given input and output
+
+        :param x_bold: input representation 
+        :param y_bold: the output representation 
+        """
+        cdef list x_encoded,loss = []
+        cdef LSTMBuilder dec_rnn = self.dec_rnn
+        cdef RNNState rnn_state
+        cdef int w,zlen = z.shape[0]
+        cdef Expression probs,loss_expr,total_loss
+        cdef int enc_state_size = self.enc_state_size
+        cdef list encoded
+        
+        ## renew the computation graph directly 
+        cg.renew(False,False,None)
+
+        x_encoded = self._embed_x(x,cg)
+        encoded = self._encode_string(x_encoded)
+
+        rnn_state = dec_rnn.initial_state().add_input(cg.inputVector(enc_state_size))
+
+        for w in range(zlen):
+            attended_encoding = self._attend(encoded,rnn_state)
+            rnn_state = rnn_state.add_input(attended_encoding)
+            probs = self._get_probs(rnn_state.output())
+            loss_expr = -log(cg.outputPicker(probs,z[w],0))
+            loss.append(loss_expr)
+
+        total_loss = esum(loss)
+        return total_loss
+        
 
 ## learner class
 
@@ -307,13 +392,13 @@ cdef class Seq2SeqLearner(LoggableClass):
                 trainer.update()
 
             trainer.update_epoch(1.0)
-
             
             ## evaluate on validation?
             if not valid.is_empty:
                 val_loss = compute_val_loss(model,valid,cg)
-                self.logger.info('Finished iteration %d after %f seconds, train loss=%f, val loss=%f' %\
-                                    (epoch+1,time.time()-estart,epoch_loss,val_loss))
+                vstart = time.time()
+                self.logger.info('Finished iteration %d after %f seconds, ran val test in %f seconds, train loss=%f, val loss=%f' %\
+                                    (epoch+1,time.time()-estart,time.time()-vstart,epoch_loss,val_loss))
             else: 
                 self.logger.info('Finished iteration %d after %f seconds, train loss=%f, no dev. data!' %\
                                     (epoch+1,time.time()-estart,epoch_loss))
@@ -433,7 +518,8 @@ cdef double compute_val_loss(Seq2SeqModel model,ParallelDataset data,Computation
 ## factories
 
 MODELS = {
-    "simple" : EncoderDecoder,
+    "simple"    : EncoderDecoder,
+    "attention" : AttentionModel,
 }
 
 TRAINERS = {

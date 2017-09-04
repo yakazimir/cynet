@@ -38,7 +38,10 @@ cdef class EncoderDecoder(RNNSeq2Seq):
     cdef list _encode_string(self,list embeddings)
 
 cdef class AttentionModel(EncoderDecoder):
-    pass 
+    cdef Parameters attention_w1,attention_w2,attention_v
+    cdef int enc_state_size
+    ## methods
+    cdef Expression _attend(self,list input_vectors, RNNState state)
 
 ## learner
 
