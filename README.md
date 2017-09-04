@@ -40,3 +40,13 @@ following:
 
     ./run_cynet [--model attention]
 
+Profiling
+-----------------
+
+Important: make sure # cython: profile=True is set on top of any
+Cython source file you want to profile.
+
+Example profile :
+
+    python -m profile.cy_encoder_decoder
+
