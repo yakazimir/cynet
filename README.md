@@ -18,7 +18,10 @@ Citations for Dynet: https://github.com/clab/dynet, see paper below
 
 One goal is to profile the Cython wrapper in its' current form, and
 see how to speed up some components by writing in pure Cython. Let's
-see if anything interesting comes out... 
+see if anything interesting comes out...
+
+As a starting point, much of the seq2seq design is coming from this
+very nice article: https://talbaumel.github.io/attention/
 
 Quick Start 
 -----------------

@@ -2,6 +2,7 @@
 import numpy as np
 from random import choice,randrange,seed
 from optparse import OptionParser,OptionGroup
+from cynet.Seq2Seq import ParallelDataset,SymbolTable
 
 __all__ = [
     "build_data",
@@ -44,15 +45,24 @@ def __build_demo_data(config):
     char2int = {c:i for i,c in enumerate(characters)}
 
     train_set = [__sample_model(1,config.max_string,characters) for _ in range(3000)]
-    val_set = [__sample_model(1,config.max_string,characters) for _ in range(50)]
-    source,target = zip(*train_set)
-    source =  np.array([np.array([char2int[c] for c in list(i)],dtype=np.int32) for i in source],dtype=object)
-    target =  np.array([np.array([char2int[c] for c in list(i)],dtype=np.int32) for i in target],dtype=object)
+    val_set   = [__sample_model(1,config.max_string,characters) for _ in range(50)]
 
-    ## create dat ainstance 
-    data = DataManager(len(characters),source,target,char2int)
-    return data
-    
+    ## training data 
+    source,target = zip(*train_set)
+    source =  np.array([np.array([char2int[c] for c in list(i)+["<EOS>"]],dtype=np.int32) for i in source],dtype=object)
+    target =  np.array([np.array([char2int[c] for c in list(i)+["<EOS>"]],dtype=np.int32) for i in target],dtype=object)
+    train_data = ParallelDataset(source,target)
+
+    ## valid data
+    sourcev,targetv = zip(*val_set)
+    sourcev = np.array([np.array([char2int[c] for c in list(i)+["<EOS>"]],dtype=np.int32) for i in sourcev],dtype=object)
+    targetv =  np.array([np.array([char2int[c] for c in list(i)+["<EOS>"]],dtype=np.int32) for i in targetv],dtype=object)
+    valid_data = ParallelDataset(sourcev,targetv)
+
+    ## symbol table
+    table = SymbolTable(char2int,char2int)
+
+    return (train_data,valid_data,table)
     
 def build_data(config):
     """Main method for building seq2seq data"""

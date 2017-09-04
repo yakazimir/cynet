@@ -47,7 +47,7 @@ cdef class Seq2SeqModel(LoggableClass):
     This is a pure cythonized version of: https://talbaumel.github.io/attention/
     """
 
-    cdef double get_loss(self, x_bold, y_bold):
+    cdef double get_loss(self, int[:] x, int[:] z):
         """Compute loss for a given input and output
 
         :param x_bold: input representation 
@@ -66,7 +66,8 @@ cdef class EncoderDecoder(RNNSeq2Seq):
                      int embedding_size,
                      int enc_state_size,
                      int dec_state_size,
-                     int vocab_size,
+                     int enc_vocab_size,
+                     int dec_vocab_size,
                      ):
         """Create a simple encoder decoder instance 
 
@@ -79,15 +80,16 @@ cdef class EncoderDecoder(RNNSeq2Seq):
         self.model = ParameterCollection()
 
         ## embedding parameters 
-        self.embeddings = self.model.add_lookup_parameters((vocab_size,embedding_size))
+        self.enc_embeddings = self.model.add_lookup_parameters((enc_vocab_size,embedding_size))
+        self.dec_embeddings = self.model.add_lookup_parameters((dec_vocab_size,embedding_size))
 
         ## RNN encode and decoder models 
         self.enc_rnn = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
         self.dec_rnn = LSTMBuilder(dec_layers,embedding_size,dec_state_size,self.model)
 
         ## output layer and bias for decoder RNN
-        self.output_w = self.model.add_parameters((vocab_size,dec_state_size))
-        self.output_b = self.model.add_parameters((vocab_size))
+        self.output_w = self.model.add_parameters((dec_vocab_size,dec_state_size))
+        self.output_b = self.model.add_parameters((dec_vocab_size))
         
     @classmethod
     def from_config(cls,config):
@@ -101,7 +103,8 @@ cdef class EncoderDecoder(RNNSeq2Seq):
                            config.embedding_size,
                            config.enc_state_size,
                            config.dec_state_size,
-                           config.vocab_size,
+                           config.enc_vocab_size,
+                           config.dec_vocab_size,
                            )
 
         return instance 
@@ -122,15 +125,19 @@ cdef class AttentionModel(EncoderDecoder):
 cdef class Seq2SeqLearner(LoggableClass):
     """Class for training Seq2Seq models"""
 
-    def __init__(self,trainer,model,data):
+    def __init__(self,trainer,model,train_data,valid_data,stable):
         """Creates a seq2seq learner
 
         :param model: the underlying neural model 
-        :param data: data instance and symbol tables 
+        :param train_data: the training data 
+        :param valid_data: the validation data
+        :param stable: the symbol table 
         """
         self.trainer = <Trainer>trainer 
-        self.model = <Seq2SeqModel>model
-        self.data  = data 
+        self.model   = <Seq2SeqModel>model
+        self.train_data = train_data ## do we need this here?
+        self.valid_data = valid_data 
+        self.stable  = stable
         self.cg = get_cg()
 
     ## training methods
@@ -144,15 +151,15 @@ cdef class Seq2SeqLearner(LoggableClass):
 
         ## the main training
         try: 
-            self._train(config.epochs,self.data.source,self.data.target)
+            self._train(config.epochs,self.train_data,self.valid_data)
         except Exception,e:
             self.logger.info(e,exc_info=True)
         finally: 
             self.logger.info('Finished training in %f seconds' % (time.time()-stime))
 
     cdef int _train(self,int epochs,
-                        np.ndarray source,
-                        np.ndarray target,
+                        ParallelDataset train,
+                        ParallelDataset valid,
                         ) except -1:
         """C training loop
 
@@ -160,16 +167,37 @@ cdef class Seq2SeqLearner(LoggableClass):
         :param source: the source data input 
         :param target: the target data input 
         """
-        cdef int data_point,epoch,data_size = source.shape[0]
-        cdef int[:] source_ex,target_ex
+        cdef int data_point,epoch,data_size = train.size
+        cdef ComputationGraph cg = self.cg
+        cdef Trainer trainer = <Trainer>self.trainer
+
+        ## training data
+        cdef np.ndarray source = train.source
+        cdef np.ndarray target = train.target
+        
+        cdef Expression loss
+        cdef double loss_value
 
         ## overall iteration 
         for epoch in range(epochs):
 
+            ## shuffle dataset?
+            
             ## go through each data point 
             for data_point in range(data_size):
-                source_ex = source[data_point]
-                target_ex = target[data_point]
+
+                ## renew the computation graph
+                cg.renew()
+
+                ## compute loss and back propogate 
+                #loss = network.get_loss(input_string, output_string)
+                # loss_value = loss.value()
+                # loss.backward()
+
+                ## do online update 
+                # trainer.update()
+                
+            trainer.update_epoch(1.0)
 
     ## builder
 
@@ -181,21 +209,90 @@ cdef class Seq2SeqLearner(LoggableClass):
         :param data: a data instance 
         :type data: cynet.util.DataManager
         """
-        cdef Seq2SeqModel model 
-        ## build the data
-        data = build_data(config)
-        config.vocab_size = data.vocab_size
+        cdef Seq2SeqModel model
+        cdef ParallelDataset train_data,valid_data
+        cdef SymbolTable symbol_table
 
-        ## find the desired class
+        ## build the data
+        train_data,valid_data,symbol_table = build_data(config)
+        config.enc_vocab_size = symbol_table.enc_vocab_size
+        config.dec_vocab_size = symbol_table.dec_vocab_size
+
+        # ## find the desired class
         nclass = NeuralModel(config.model)
         model = <Seq2SeqModel>nclass.from_config(config)
 
-        ## find the desired trainer
+        # ## find the desired trainer
         trainer = TrainerModel(config,model.model)
 
-        return cls(trainer,model,data)
-                
+        return cls(trainer,model,train_data,valid_data,symbol_table)
 
+## helper classes
+
+cdef class ParallelDataset(LoggableClass):
+    """A class for working with parallel datasets"""
+
+    def __init__(self,np.ndarray source,np.ndarray target,bint shuffle=True):
+        """Create a ParallelDataset instance 
+
+        :param source: the source language 
+        :param target: the target language 
+        :raises: ValueError
+        """
+        self.source = source
+        self.target = target
+        self._len = self.source.shape[0]
+        self._shuffle = shuffle
+        
+        ## check that both datasets match in size
+        assert self._len == self.target.shape[0],"Bad size!"
+
+    property size:
+        """Access information about the dataset size"""
+        def __get__(self):
+            return <int>self._len
+
+    property shuffle:
+        """Turn on and off the shuffling settings"""
+        def __get__(self):
+            return <bint>self._shuffle
+        def __set__(self,bint new_val):
+            self._shuffle = new_val
+
+    property is_empty:
+        """Deteremines if a given dataset is empty or not"""
+        def __get__(self):
+            return <bint>(self._len == 0)
+
+    @classmethod
+    def make_empty(cls):
+        """Make an empty dataset
+
+        :returns: ParallelDataset instance without data
+        """
+        return cls(np.array([]),np.array([]))
+
+cdef class SymbolTable(LoggableClass):
+    """Hold information about the integer symbol mappings"""
+    
+    def __init__(self,enc_map,dec_map):
+        self.enc_map = enc_map
+        self.dec_map = dec_map
+        
+        ##
+        
+    property enc_vocab_size:
+        """Get information about the encoder vocabulary size"""
+        def __get__(self):
+            return <int>len(self.enc_map)
+
+    property dec_vocab_size:
+        """Get information about the decoder vocabulary size"""
+        def __get__(self):
+            return <int>len(self.dec_map)
+    
+    
+        
 ## factories
 
 MODELS = {
@@ -353,10 +450,8 @@ def run_seq2seq(config):
     
     try: 
         learner = Seq2SeqLearner.from_config(config)
-
+        ## train the model 
         learner.train(config)
-        
         
     except Exception,e:
         traceback.print_exc(file=sys.stderr)
-
