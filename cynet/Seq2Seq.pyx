@@ -674,7 +674,6 @@ def run_seq2seq(config):
     
     :param config: the global configuration 
     """
-    logging.basicConfig(level=logging.INFO)
     
     try: 
         learner = Seq2SeqLearner.from_config(config)

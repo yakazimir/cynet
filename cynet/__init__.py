@@ -1,3 +1,4 @@
+import os
 from optparse import OptionParser,OptionGroup
 from cynet.Seq2Seq import params as seq_params
 from cynet.util import params as util_params
@@ -10,6 +11,9 @@ global_config = OptionParser(usage=USAGE,description=DESCR)
 seq_params(global_config)
 util_params(global_config)
 
+## lib_loc
+src_loc = os.path.abspath(os.path.dirname(__file__))
+lib_loc = os.path.abspath(os.path.join(src_loc,"../"))
 
 ## added the global stuff 
 GEN = OptionGroup(global_config,"cynet.__main__")
@@ -24,6 +28,11 @@ GEN.add_option(
     help="Dynet random seed [default=2798003128]"
 )
 
+GEN.add_option(
+    "--logger",dest="logger",default="info",type=str,
+    help="The logger level [default='info']"
+)
+
 global_config.add_option_group(GEN)
 
 
@@ -34,6 +43,7 @@ def start_dynet(config,params):
 
     :param config: the global configuration with settings 
     :param params: the dynet params instance 
+    :type params: cynet._dynet.DynetParams
     """
     params.set_mem(config.mem)
     params.set_random_seed(config.seed)
