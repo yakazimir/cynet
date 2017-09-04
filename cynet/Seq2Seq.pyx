@@ -3,6 +3,7 @@
 Cythonized version of the models implemented in : https://talbaumel.github.io/attention/ 
 
 """
+
 import time
 import traceback
 from optparse import OptionParser,OptionGroup

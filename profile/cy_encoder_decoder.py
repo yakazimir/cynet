@@ -10,7 +10,7 @@ from cynet import lib_loc
 # python -m profile.cyn_encoder_decoder
 
 config,_ = global_config.parse_args(sys.argv[1:])
-config.epochs = 1
+config.epochs = 4
 
 def run_decoder():
     run_seq2seq(config)
