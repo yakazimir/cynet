@@ -315,7 +315,6 @@ cdef class AttentionModel(EncoderDecoder):
 
         total_loss = esum(loss)
         return total_loss
-        
 
 ## learner class
 
@@ -491,7 +490,7 @@ cdef class SymbolTable(LoggableClass):
         self.enc_map = enc_map
         self.dec_map = dec_map
         
-        ##
+        ## TODO: map these too lookup vectors
         
     property enc_vocab_size:
         """Get information about the encoder vocabulary size"""
@@ -502,7 +501,7 @@ cdef class SymbolTable(LoggableClass):
         """Get information about the decoder vocabulary size"""
         def __get__(self):
             return <int>len(self.dec_map)
-    
+
 ##
 
 cdef double compute_val_loss(Seq2SeqModel model,ParallelDataset data,ComputationGraph cg):

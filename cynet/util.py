@@ -1,4 +1,6 @@
 ## utility functions
+import os
+import codecs
 import numpy as np
 from random import choice,randrange,seed
 from optparse import OptionParser,OptionGroup
@@ -64,18 +66,64 @@ def __build_demo_data(config):
 
     return (train_data,valid_data,table)
 
+def __read_data(path,symbols=None,lowercase=True):
+    """Read the data and extract a symbol map
+
+    :param path: the path to the data 
+    """
+    total   = []
+    encoded = []
+    symbol_map = {} if symbols is None else symbols
+
+    with codecs.open(path,encoding='utf-8') as my_data:
+        for line in my_data:
+            line = line.strip().lower()
+            total.append(line)
+            if symbols is None: 
+                for word in line.split():
+                    word = word.strip()
+                    if word not in symbol_map:
+                        symbol_map[word] = len(symbol_map)
+
+    ## now encode the data
+    for example in total:
+        encoded.append([symbol_map.get(w.strip(),-1) for w in example.split()])
+
+    return (encoded,symbol_map)
+            
 def __build_wdir(config):
     """Build data from an existing working directory full of data
 
     :param config: the main configuration 
     """
-    pass
+    wdir = config.wdir
+    name = config.name
+
+    ## train data
+    ################
+    ################
+    source_train = os.path.join(wdir,"%s.%s" % (name,config.source))
+    target_train = os.path.join(wdir,"%s.%s" % (name,config.target))
+
+    ## check that the data exists
+    if not os.path.isfile(source_train): raise ValueError('Cannot find the source data: %s' % source_train)
+    if not os.path.isfile(target_train): raise ValueError('Cannot find the target data: %s' % source_train)
+
+    ## build the data
+    source_train_e,enc_symbols = __read_data(source_train)
+    target_train_e,dec_symbols = __read_data(target_train)
+
+    ## valid data
+    ################
+    ################
+            
+                
     
 def build_data(config):
     """Main method for building seq2seq data"""
 
     if config.wdir:
-        pass 
+        return __build_wdir(config)
     
     elif config.demo_data:
         return __build_demo_data(config)
