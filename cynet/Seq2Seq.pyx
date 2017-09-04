@@ -280,7 +280,7 @@ cdef class Seq2SeqLearner(LoggableClass):
         cdef np.ndarray target = train.target
         
         cdef Expression loss
-        cdef double loss_value,epoch_loss
+        cdef double loss_value,epoch_loss,val_loss
 
         ## neural network model
         cdef Seq2SeqModel model = <Seq2SeqModel>self.model
@@ -307,10 +307,16 @@ cdef class Seq2SeqLearner(LoggableClass):
                 trainer.update()
 
             trainer.update_epoch(1.0)
-            ## evaluate on validation?
 
-            self.logger.info('Finished iteration %d after %f seconds, train loss=%f' %\
-                                 (epoch+1,time.time()-estart,epoch_loss))
+            
+            ## evaluate on validation?
+            if not valid.is_empty:
+                val_loss = compute_val_loss(model,valid,cg)
+                self.logger.info('Finished iteration %d after %f seconds, train loss=%f, val loss=%f' %\
+                                    (epoch+1,time.time()-estart,epoch_loss,val_loss))
+            else: 
+                self.logger.info('Finished iteration %d after %f seconds, train loss=%f, no dev. data!' %\
+                                    (epoch+1,time.time()-estart,epoch_loss))
 
     ## builder
 
@@ -404,7 +410,25 @@ cdef class SymbolTable(LoggableClass):
         def __get__(self):
             return <int>len(self.dec_map)
     
-    
+##
+
+cdef double compute_val_loss(Seq2SeqModel model,ParallelDataset data,ComputationGraph cg):
+    """Compute loss on a validation dataset given a neural model 
+
+    :param model: the underlying model 
+    :param data: the development or held out data 
+    :param cg: the computation graph 
+    """
+    cdef np.ndarray source = data.source
+    cdef np.ndarray target = data.target
+    cdef int data_point,data_size = data.size
+    cdef double total_loss = 0.0
+
+    for data_point in range(data_size):
+        loss = model.get_loss(source[data_point],target[data_point],cg)
+        total_loss += <double>loss.value()
+
+    return total_loss
         
 ## factories
 
