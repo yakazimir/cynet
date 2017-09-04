@@ -21,6 +21,7 @@ from cynet._dynet cimport (
     MomentumSGDTrainer,
     AdagradTrainer,
     AdamTrainer,
+    RNNState,
     get_cg, ## to get direct access to computation graph 
 )
 
@@ -47,13 +48,34 @@ cdef class Seq2SeqModel(LoggableClass):
     This is a pure cythonized version of: https://talbaumel.github.io/attention/
     """
 
-    cdef double get_loss(self, int[:] x, int[:] z):
+    cdef Expression get_loss(self, int[:] x, int[:] z, ComputationGraph cg):
         """Compute loss for a given input and output
 
         :param x_bold: input representation 
         :param y_bold: the output representation 
+        :param computation graph 
         """
         raise NotImplementedError
+
+    cdef list _embed_x(self,int[:] x,ComputationGraph cg):
+        """Embed the given input for use in the neural model
+
+        :param x: the input vector 
+        :param cg: the computation graph
+        """
+        cdef LookupParameters embed = self.enc_embeddings
+        cdef int i
+        return [cg.lookup(embed,i,True) for i in x]
+
+    cdef list _embed_z(self,int[:] z,ComputationGraph cg):
+        """Embed the given input for use in the neural model
+
+        :param z: the input vector 
+        :param cg: the computation graph 
+        """
+        cdef LookupParameters embed = self.dec_embeddings
+        cdef int i
+        return [cg.lookup(embed,i,True) for i in x]
 
 cdef class RNNSeq2Seq(Seq2SeqModel):
     pass 
@@ -98,6 +120,7 @@ cdef class EncoderDecoder(RNNSeq2Seq):
         :param config: the global configuration 
         :rtype: EncodeDecoder 
         """
+        stime = time.time()
         instance = cls(config.enc_rnn_layers,
                            config.dec_rnn_layers,
                            config.embedding_size,
@@ -107,7 +130,36 @@ cdef class EncoderDecoder(RNNSeq2Seq):
                            config.dec_vocab_size,
                            )
 
-        return instance 
+        instance.logger.info('Built model in %f seconds' % (time.time()-stime))
+        return instance
+
+    ## c methods
+
+    
+
+    cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
+        """Compute loss for a given input and output
+
+        :param x_bold: input representation 
+        :param y_bold: the output representation 
+        """
+        cdef list x_encoded
+        cdef LSTMBuilder dec_rnn = self.dec_rnn
+        cdef RNNState rnn_state
+        cdef int w,zlen = z.shape[0]
+        
+        ## renew the computation graph directly 
+        cg.renew(False,False,None)
+
+        ## encode the input
+        x_encoded = self._embed_x(x,cg)
+
+        ##
+        rnn_state = dec_rnn.initial_state()
+
+        ## loop through the
+        for w in range(zlen):
+            pass
         
 cdef class AttentionModel(EncoderDecoder):
     
@@ -178,6 +230,9 @@ cdef class Seq2SeqLearner(LoggableClass):
         cdef Expression loss
         cdef double loss_value
 
+        ## neural network model
+        cdef Seq2SeqModel model = <Seq2SeqModel>self.model
+
         ## overall iteration 
         for epoch in range(epochs):
 
@@ -187,9 +242,9 @@ cdef class Seq2SeqLearner(LoggableClass):
             for data_point in range(data_size):
 
                 ## renew the computation graph
-                cg.renew()
 
-                ## compute loss and back propogate 
+                ## compute loss and back propogate
+                loss = model.get_loss(source[data_point],target[data_point],cg)
                 #loss = network.get_loss(input_string, output_string)
                 # loss_value = loss.value()
                 # loss.backward()

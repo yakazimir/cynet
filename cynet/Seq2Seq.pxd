@@ -9,12 +9,12 @@ from cynet._dynet cimport (
     LookupParameters,
     LSTMBuilder,
     Parameters,
+    RNNState,
 )
 
 
 cdef class LoggableClass:
     pass 
-
 
 ## types of seq2seq implementations
 
@@ -23,7 +23,9 @@ cdef class Seq2SeqModel(LoggableClass):
     cdef LookupParameters enc_embeddings
     cdef LookupParameters dec_embeddings
     ## methods 
-    cdef double get_loss(self, int[:] x, int[:] z)
+    cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg)
+    cdef list _embed_x(self,int[:] x,ComputationGraph cg)
+    cdef list _embed_z(self,int[:]z,ComputationGraph cg)
 
 cdef class RNNSeq2Seq(Seq2SeqModel):
     cdef LSTMBuilder enc_rnn, dec_rnn

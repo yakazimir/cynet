@@ -559,7 +559,7 @@ cdef class Tensor:
 
 cdef class RNNState:
     cdef _RNNBuilder builder
-    cdef int state_indx
+    cdef int state_idx
     cdef RNNState _prev
     cdef Expression _out
     cpdef RNNState set_h(self, es=?)
