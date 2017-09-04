@@ -1,3 +1,5 @@
+# cython: profile=True
+
 ### NOTE : THIS ORIGINAL CODE IS TAKEN AND COPIED FROM FROM DYNET
 ### PLEASE SEE HERE: https://github.com/clab/dynet/blob/master/python/_dynet.pyx
 

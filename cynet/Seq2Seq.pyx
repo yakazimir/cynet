@@ -660,17 +660,6 @@ def params(config):
 
     config.add_option_group(gen_group)
 
-    ##
-    learn_group = OptionGroup(config,"cynet.Seq2Seq.Seq2SeqLearner","Settings for Seq2Seq Learner")
-
-    learn_group.add_option(
-        "--data",dest="data",
-        default=1,
-        type=int,
-        help="The location of the data [default='']"
-    )
-
-    config.add_option_group(learn_group)
 
 def run_seq2seq(config):
     """Main execution point for running a seq2seq model 

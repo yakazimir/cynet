@@ -63,13 +63,28 @@ def __build_demo_data(config):
     table = SymbolTable(char2int,char2int)
 
     return (train_data,valid_data,table)
+
+def __build_wdir(config):
+    """Build data from an existing working directory full of data
+
+    :param config: the main configuration 
+    """
+    pass
     
 def build_data(config):
     """Main method for building seq2seq data"""
+
+    if config.wdir:
+        pass 
     
-    if config.demo_data:
+    elif config.demo_data:
         return __build_demo_data(config)
 
+    ## build another data
+    else: 
+        raise ValueError('Unknown option: please specify --wdir or --demo_data')
+
+    
 ## module parameters
 
 def params(config):
@@ -88,6 +103,35 @@ def params(config):
         type=int,
         default=15,
         help="Run the code with the demo data [default=True]"
+    )
+
+    util_group.add_option(
+        "--wdir",dest="wdir",
+        type=str,
+        default="",
+        help="The working directory [default='']"
+    )
+
+
+    util_group.add_option(
+        "--source",dest="source",
+        type=str,
+        default="e",
+        help="The source suffix [default='e']"
+    )
+
+    util_group.add_option(
+        "--target",dest="target",
+        type=str,
+        default="f",
+        help="The target suffix [default='f']"
+    )
+
+    util_group.add_option(
+        "--name",dest="name",
+        type=str,
+        default="data",
+        help="The name of the data [default='data']"
     )
 
     config.add_option_group(util_group)
