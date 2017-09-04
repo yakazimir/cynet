@@ -1,3 +1,8 @@
+""" 
+
+Cythonized version of the models implemented in : https://talbaumel.github.io/attention/ 
+
+"""
 import time
 import traceback
 from optparse import OptionParser,OptionGroup
@@ -45,7 +50,7 @@ cdef class LoggableClass:
 
         """
         raise NotImplementedError()
-    
+
 ## seq2seq models
 
 cdef class Seq2SeqModel(LoggableClass):
