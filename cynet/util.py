@@ -1,6 +1,7 @@
 ## utility functions
 import os
 import codecs
+import logging 
 import numpy as np
 from random import choice,randrange,seed
 from optparse import OptionParser,OptionGroup
@@ -10,6 +11,8 @@ __all__ = [
     "build_data",
     "DataManager",
 ]
+
+util_logger = logging.getLogger('cynet.util')
 
 class DataManager(object):
     """General class for storing lexical info, symbol tables, parallel data ..."""
@@ -74,22 +77,24 @@ def __read_data(path,symbols=None,lowercase=True):
     total   = []
     encoded = []
     symbol_map = {} if symbols is None else symbols
-
+    symbol_map[u"<EOS>"] = 0
+    
     with codecs.open(path,encoding='utf-8') as my_data:
         for line in my_data:
             line = line.strip().lower()
-            total.append(line)
+            total.append(line+" "+"<EOS>")
             if symbols is None: 
                 for word in line.split():
                     word = word.strip()
                     if word not in symbol_map:
                         symbol_map[word] = len(symbol_map)
-
     ## now encode the data
     for example in total:
-        encoded.append([symbol_map.get(w.strip(),-1) for w in example.split()])
-
-    return (encoded,symbol_map)
+        encoded.append(
+            np.array([symbol_map.get(w.strip(),-1) for w in example.split()],
+                         dtype=np.int32))
+    ## map to numpy
+    return (np.array(encoded,dtype=object),symbol_map)
             
 def __build_wdir(config):
     """Build data from an existing working directory full of data
@@ -112,13 +117,28 @@ def __build_wdir(config):
     ## build the data
     source_train_e,enc_symbols = __read_data(source_train)
     target_train_e,dec_symbols = __read_data(target_train)
+    train = ParallelDataset(source_train_e,target_train_e)
+
+    symbol_map = SymbolTable(enc_symbols,dec_symbols)
 
     ## valid data
     ################
     ################
-            
-                
-    
+    try:
+        source_valid = os.path.join(wdir,"%s_val.%s" % (name,config.source))
+        target_valid = os.path.join(wdir,"%s_val.%s" % (name,config.target))
+        ## build these datasets
+        source_valid_e,_ = __read_data(source_valid,symbols=enc_symbols)
+        target_valid_e,_ = __read_data(source_valid,symbols=dec_symbols)
+        valid = ParallelDataset(source_valid_e,target_valid_e)
+
+    except Exception:
+        util_logger.warning('Error building valid data, or missing, skipping...')
+        valid = ParallelDataset.make_empty()
+
+    # util_logger.info('Loaded dataset, source=%d pairs,target=%d pairs, source vocab=%d tokens, target_vocab=%d tokens' % (train.size,valid.size,symbol_map.enc_vocab_size,symbol_map.dec_vocab_size))
+    return (train,valid,symbol_map)
+        
 def build_data(config):
     """Main method for building seq2seq data"""
 

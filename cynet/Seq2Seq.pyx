@@ -79,17 +79,17 @@ cdef class Seq2SeqModel(LoggableClass):
         """
         cdef LookupParameters embed = self.enc_embeddings
         cdef int i
-        return [cg.lookup(embed,i,True) for i in x]
+        return [cg.lookup(embed,i,True) for i in x if i != -1]
 
-    cdef list _embed_z(self,int[:] z,ComputationGraph cg):
-        """Embed the given input for use in the neural model
+    # cdef list _embed_z(self,int[:] z,ComputationGraph cg):
+    #     """Embed the given input for use in the neural model
 
-        :param z: the input vector 
-        :param cg: the computation graph 
-        """
-        cdef LookupParameters embed = self.dec_embeddings
-        cdef int i
-        return [cg.lookup(embed,i,True) for i in x]
+    #     :param z: the input vector 
+    #     :param cg: the computation graph 
+    #     """
+    #     cdef LookupParameters embed = self.dec_embeddings
+    #     cdef int i
+    #     return [cg.lookup(embed,i,True) for i in x if i != -1]
 
     cdef list _run_enc_rnn(self,RNNState init_state,list input_vecs):
         """Run the encoder RNN with some initial state and input vector 
@@ -216,11 +216,12 @@ cdef class EncoderDecoder(RNNSeq2Seq):
 
         ## loop through the
         for w in range(zlen):
+            if z[w] == -1: continue 
             rnn_state = rnn_state.add_input(encoded)
             probs = self._get_probs(rnn_state.output())
             loss_expr = -log(cg.outputPicker(probs,z[w],0))
             loss.append(loss_expr)
-
+            
         total_loss = esum(loss)
         return total_loss
         
@@ -266,13 +267,12 @@ cdef class AttentionModel(EncoderDecoder):
 
         ## computations 
         cdef Expression attention_weight,new_v
-
+        
         w1 = w1_o.expr(True)
         w2 = w2_o.expr(True)
         v = v_o.expr(True)
-
         w2dt = w2*((<tuple>state.h())[-1])
-        
+
         for input_vector in range(vlen):
             attention_weight = v*tanh(w1*input_vectors[input_vector]+w2dt)
             weights.append(attention_weight)
@@ -303,10 +303,12 @@ cdef class AttentionModel(EncoderDecoder):
 
         x_encoded = self._embed_x(x,cg)
         encoded = self._encode_string(x_encoded)
-
+        
         rnn_state = dec_rnn.initial_state().add_input(cg.inputVector(enc_state_size))
 
         for w in range(zlen):
+            ## skip over unknown words 
+            if z[w] == -1: continue
             attended_encoding = self._attend(encoded,rnn_state)
             rnn_state = rnn_state.add_input(attended_encoding)
             probs = self._get_probs(rnn_state.output())
