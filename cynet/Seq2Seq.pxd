@@ -27,7 +27,7 @@ cdef class Seq2SeqModel(LoggableClass):
     ## methods 
     cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg)
     cdef list _embed_x(self,int[:] x,ComputationGraph cg)
-    #cdef list _embed_z(self,int[:]z,ComputationGraph cg)
+    cdef list _embed_z(self,int[:]z,ComputationGraph cg)
     cdef list _run_enc_rnn(self,RNNState init_state,list input_vecs)
     cdef Expression _get_probs(self,Expression rnn_output)
 
@@ -43,6 +43,10 @@ cdef class AttentionModel(EncoderDecoder):
     ## methods
     cdef Expression _attend(self,list input_vectors, RNNState state)
 
+cdef class BiLSTMAttention(AttentionModel):
+    cdef LSTMBuilder enc_bwd_rnn
+
+    
 ## learner
 
 cdef class Seq2SeqLearner(LoggableClass):

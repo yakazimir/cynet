@@ -1,8 +1,10 @@
 # cython: profile=True
 
 """ 
+Cythonized version of the models implemented in : https://talbaumel.github.io/attention/, which 
+itsels seems to be a variation of the attention example in dynet. 
 
-Cythonized version of the models implemented in : https://talbaumel.github.io/attention/ 
+author: Kyle Richardson 
 
 """
 
@@ -81,15 +83,15 @@ cdef class Seq2SeqModel(LoggableClass):
         cdef int i
         return [cg.lookup(embed,i,True) for i in x if i != -1]
 
-    # cdef list _embed_z(self,int[:] z,ComputationGraph cg):
-    #     """Embed the given input for use in the neural model
+    cdef list _embed_z(self,int[:] z,ComputationGraph cg):
+        """Embed the given input for use in the neural model
 
-    #     :param z: the input vector 
-    #     :param cg: the computation graph 
-    #     """
-    #     cdef LookupParameters embed = self.dec_embeddings
-    #     cdef int i
-    #     return [cg.lookup(embed,i,True) for i in x if i != -1]
+        :param z: the input vector 
+        :param cg: the computation graph 
+        """
+        cdef LookupParameters embed = self.dec_embeddings
+        cdef int i
+        return [cg.lookup(embed,i,True) for i in x if i != -1]
 
     cdef list _run_enc_rnn(self,RNNState init_state,list input_vecs):
         """Run the encoder RNN with some initial state and input vector 
@@ -116,10 +118,8 @@ cdef class Seq2SeqModel(LoggableClass):
 
         output = output_w.expr(True)
         bias = output_b.expr(True)
-
         probs = softmax(output*rnn_output+bias)
-        return probs 
-        
+        return probs
 
 cdef class RNNSeq2Seq(Seq2SeqModel):
     pass 
@@ -439,6 +439,106 @@ cdef class Seq2SeqLearner(LoggableClass):
         trainer = TrainerModel(config,model.model)
 
         return cls(trainer,model,train_data,valid_data,symbol_table)
+
+cdef class BiLSTMAttention(AttentionModel):
+    """Attention model that uses a bidirectional LSTM model on the source side, 
+    more in line with the original Bahdanau paper.
+
+    Follows the attention.py example distributed in dynet/examples/python
+    """
+
+    def __init__(self,int enc_layers,
+                     int dec_layers,
+                     int embedding_size,
+                     int enc_state_size,
+                     int dec_state_size,
+                     int enc_vocab_size,
+                     int dec_vocab_size,
+                     ):
+        """Creates a BiLSTMAttention model instance 
+
+        Note : this constructor doesn't inherit from the previous ones, 
+        since it changes a few things, such as the how the decoder RNN 
+        work. This should be generalized more...
+        
+        :param enc_layers: the number of encoder layers 
+        :param dec_layers: the number of decoder layers 
+        :param enc_state_size: the size of the encoder state 
+        :param dec_state_size: the size of the decoder state size 
+        :param enc_vocab_size: the size of the encoder vocabulary 
+        :param dec_vocab_size: the size of the decoder vocabulary
+        """
+        self.model = ParameterCollection()
+
+        ## embedding parameters 
+        self.enc_embeddings = self.model.add_lookup_parameters((enc_vocab_size,embedding_size))
+        self.dec_embeddings = self.model.add_lookup_parameters((dec_vocab_size,embedding_size))
+
+        ## RNN encode and decoder models 
+        self.enc_rnn     = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
+        self.dec_rnn     = LSTMBuilder(dec_layers,enc_state_size*2+embedding_size,dec_state_size,self.model)
+        ## the reverse RNN
+        self.enc_bwd_rnn = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
+        
+        ## output layer and bias for decoder RNN
+        self.output_w = self.model.add_parameters((dec_vocab_size,dec_state_size))
+        self.output_b = self.model.add_parameters((dec_vocab_size))
+
+        ## attention stuff
+        self.attention_w1 = self.model.add_parameters((enc_state_size,enc_state_size*2))
+        self.attention_w2 = self.model.add_parameters((enc_state_size,enc_state_size*enc_layers*2))
+        self.attention_v = self.model.add_parameters((1,enc_state_size))
+        self.enc_state_size = enc_state_size
+
+    cdef list _encode_string(self,list embeddings):
+        """Get the representationf for the input by running through RNN
+
+        :param embeddings: the 
+        """
+        cdef LSTMBuilder enc_rnn = self.enc_rnn
+        cdef LSTMBuilder enc_bwd_rnn = self.enc_bwd_rnn
+        cdef RNNState initial_state = enc_rnn.initial_state()
+        cdef RNNSTate bwd_initial_state = enc_bwd_rnn.initial_state()
+        cdef list hidden_states
+
+        ## annotations or hidden states
+        hidden_states = self._run_enc_rnn(initial_state,embeddings)
+        return hidden_states
+
+    cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
+        """Compute loss for a given input and output
+
+        :param x_bold: input representation 
+        :param y_bold: the output representation 
+        """
+        cdef list x_encoded,loss = []
+        cdef LSTMBuilder dec_rnn = self.dec_rnn
+        cdef RNNState rnn_state
+        cdef int w,zlen = z.shape[0]
+        cdef Expression probs,loss_expr,total_loss
+        cdef int enc_state_size = self.enc_state_size
+        cdef list encoded
+        
+        ## renew the computation graph directly 
+        cg.renew(False,False,None)
+
+        x_encoded = self._embed_x(x,cg)
+
+
+        # encoded = self._encode_string(x_encoded)
+        # rnn_state = dec_rnn.initial_state().add_input(cg.inputVector(enc_state_size))
+        # for w in range(zlen):
+        #     ## skip over unknown words 
+        #     if z[w] == -1: continue
+        #     attended_encoding = self._attend(encoded,rnn_state)
+        #     rnn_state = rnn_state.add_input(attended_encoding)
+        #     probs = self._get_probs(rnn_state.output())
+        #     loss_expr = -log(cg.outputPicker(probs,z[w],0))
+        #     loss.append(loss_expr)
+        # total_loss = esum(loss)
+        # return total_loss        
+
+
 
 ## helper classes
 
