@@ -499,10 +499,22 @@ cdef class BiLSTMAttention(AttentionModel):
         cdef LSTMBuilder enc_bwd_rnn = self.enc_bwd_rnn
         cdef RNNState initial_state = enc_rnn.initial_state()
         cdef RNNSTate bwd_initial_state = enc_bwd_rnn.initial_state()
-        cdef list hidden_states
+        cdef list fw_hidden_states,bwd_hidden_states
+        cdef list vectors,sentence_rev = list(reversed(embeddings))
+        cdef int i,vsize = len(embeddings)
+        cdef Expression con 
 
-        ## annotations or hidden states
-        hidden_states = self._run_enc_rnn(initial_state,embeddings)
+        ## run forward
+        fw_hidden_states = self._run_enc_rnn(initial_state,embeddings)
+        ## run backward and reverse
+        bwd_hidden_states = self._run_enc_rnn(initial_state,sentence_rev)
+        bwd_hidden_states = list(reversed(bwd_hidden_states))
+
+        ## create the final vectors
+        vectors = []
+        for i in range(vsize):
+            con = concatenate([fw_hidden_states[i],bwd_hidden_states[i]])
+            vectors.append(con)
         return hidden_states
 
     cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
@@ -523,9 +535,8 @@ cdef class BiLSTMAttention(AttentionModel):
         cg.renew(False,False,None)
 
         x_encoded = self._embed_x(x,cg)
-
-
-        # encoded = self._encode_string(x_encoded)
+        encoded = self._encode_string(x_encoded)
+        
         # rnn_state = dec_rnn.initial_state().add_input(cg.inputVector(enc_state_size))
         # for w in range(zlen):
         #     ## skip over unknown words 
