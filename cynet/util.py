@@ -170,7 +170,7 @@ def params(config):
         "--max_string",dest="max_string",
         type=int,
         default=15,
-        help="Run the code with the demo data [default=True]"
+        help="The maximum string size (for demo) [default=15]"
     )
 
     util_group.add_option(

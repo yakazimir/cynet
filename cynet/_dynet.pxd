@@ -636,8 +636,13 @@ cdef class AdamTrainer(Trainer):
     pass 
 
 cdef ComputationGraph get_cg()
+
+## expression related functions
 cpdef Expression softmax(Expression x)
 cpdef Expression log(Expression x)
 cpdef Expression esum(list xs)
 cpdef Expression tanh(Expression x)
 cpdef Expression concatenate(list xs, unsigned d=?)
+cpdef Expression transpose(Expression x, list dims=?)
+cpdef Expression concatenate_cols(list xs)
+cpdef Expression colwise_add(Expression x, Expression y)

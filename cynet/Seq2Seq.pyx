@@ -38,6 +38,9 @@ from cynet._dynet cimport (
     esum,
     tanh,
     concatenate,
+    concatenate_cols,
+    transpose,
+    colwise_add,
     get_cg, ## to get direct access to computation graph 
 )
 
@@ -91,7 +94,7 @@ cdef class Seq2SeqModel(LoggableClass):
         """
         cdef LookupParameters embed = self.dec_embeddings
         cdef int i
-        return [cg.lookup(embed,i,True) for i in x if i != -1]
+        return [cg.lookup(embed,i,True) for i in z if i != -1]
 
     cdef list _run_enc_rnn(self,RNNState init_state,list input_vecs):
         """Run the encoder RNN with some initial state and input vector 
@@ -283,7 +286,7 @@ cdef class AttentionModel(EncoderDecoder):
             new_v = input_vectors[input_vector]*normed[input_vector]
             normalized.append(new_v)
         return esum(normalized)
-                        
+
     cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
         """Compute loss for a given input and output
 
@@ -490,6 +493,26 @@ cdef class BiLSTMAttention(AttentionModel):
         self.attention_v = self.model.add_parameters((1,enc_state_size))
         self.enc_state_size = enc_state_size
 
+    cdef Expression _bi_attend(self,Expression input_matrix,RNNState s,Expression w1dt):
+        """Playing around with the 
+
+        :param input_matrix: the input "annotations" in matrix form 
+        :param s: the decoder current state 
+        :param w1dt: 
+        """
+        cdef Parameters w2_o = self.attention_w2
+        cdef Parameters v_o = self.attention_v
+        cdef Expression w2,v,w2dt,unormed,normed,context
+
+        w2 = w2_o.expr(True)
+        v = v_o.expr(True)
+        w2dt = w2*concatenate(list(s.s()))
+        unormed = transpose(v*tanh(colwise_add(w1dt,w2dt)))
+        normed = softmax(unormed)
+        context = input_matrix*normed
+        return context
+        
+
     cdef list _encode_string(self,list embeddings):
         """Get the representationf for the input by running through RNN
 
@@ -498,7 +521,7 @@ cdef class BiLSTMAttention(AttentionModel):
         cdef LSTMBuilder enc_rnn = self.enc_rnn
         cdef LSTMBuilder enc_bwd_rnn = self.enc_bwd_rnn
         cdef RNNState initial_state = enc_rnn.initial_state()
-        cdef RNNSTate bwd_initial_state = enc_bwd_rnn.initial_state()
+        cdef RNNState bwd_initial_state = enc_bwd_rnn.initial_state()
         cdef list fw_hidden_states,bwd_hidden_states
         cdef list vectors,sentence_rev = list(reversed(embeddings))
         cdef int i,vsize = len(embeddings)
@@ -515,7 +538,7 @@ cdef class BiLSTMAttention(AttentionModel):
         for i in range(vsize):
             con = concatenate([fw_hidden_states[i],bwd_hidden_states[i]])
             vectors.append(con)
-        return hidden_states
+        return vectors
 
     cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
         """Compute loss for a given input and output
@@ -526,29 +549,53 @@ cdef class BiLSTMAttention(AttentionModel):
         cdef list x_encoded,loss = []
         cdef LSTMBuilder dec_rnn = self.dec_rnn
         cdef RNNState rnn_state
-        cdef int w,zlen = z.shape[0]
+        cdef int i,w,zlen
         cdef Expression probs,loss_expr,total_loss
         cdef int enc_state_size = self.enc_state_size
-        cdef list encoded
-        
+        cdef list encoded,actual_seq
+
+        ## embedding on the target side 
+        cdef Expression last_embed,input_mat
+
+        ## parameterrs
+        cdef Parameters w1_o = self.attention_w1
+        cdef Expression w1,w1dt,vector
+
         ## renew the computation graph directly 
         cg.renew(False,False,None)
 
+        ## 
+        w1 = w1_o.expr(True)
+        
+        ## embed input x and run RNNs in both directions 
         x_encoded = self._embed_x(x,cg)
         encoded = self._encode_string(x_encoded)
-        
-        # rnn_state = dec_rnn.initial_state().add_input(cg.inputVector(enc_state_size))
-        # for w in range(zlen):
-        #     ## skip over unknown words 
-        #     if z[w] == -1: continue
-        #     attended_encoding = self._attend(encoded,rnn_state)
-        #     rnn_state = rnn_state.add_input(attended_encoding)
-        #     probs = self._get_probs(rnn_state.output())
-        #     loss_expr = -log(cg.outputPicker(probs,z[w],0))
-        #     loss.append(loss_expr)
-        # total_loss = esum(loss)
-        # return total_loss        
+        ## create matrix of input vectors 
+        input_mat = concatenate_cols(encoded)
 
+        ## embed output z
+        z_encoded = self._embed_z(z,cg)
+        zlen = len(z_encoded)
+        last_embed = <Expression>z_encoded[0]
+
+        ## rnn initial state
+        rnn_state = dec_rnn.initial_state().add_input(concatenate([cg.inputVector(enc_state_size*2),last_embed]))
+
+        ## rebuild sequence without oov words (to match the embeddings list)
+        actual_seq = [i for i in z if i != -1]
+        
+        ## note : ignores unknown words 
+        for w in range(zlen):
+            w1dt = w1*input_mat
+            vector = dy.concatenate([self._bi_attend(input_mat, rnn_state, w1dt), last_embed])
+            rnn_state.add_input(vector)
+            probs = self._get_probs(rnn_state.output())
+            loss_expr = -log(cg.outputPicker(probs,actual_seq[w],0))
+            loss.append(loss_expr)
+            last_embed = z_encoded[w]
+            
+        total_loss = esum(loss)
+        return total_loss
 
 
 ## helper classes
@@ -640,6 +687,7 @@ cdef double compute_val_loss(Seq2SeqModel model,ParallelDataset data,Computation
 MODELS = {
     "simple"    : EncoderDecoder,
     "attention" : AttentionModel,
+    "bilstm"    : BiLSTMAttention,
 }
 
 TRAINERS = {

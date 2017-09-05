@@ -45,7 +45,7 @@ cdef class AttentionModel(EncoderDecoder):
 
 cdef class BiLSTMAttention(AttentionModel):
     cdef LSTMBuilder enc_bwd_rnn
-
+    cdef Expression _bi_attend(self,Expression input_matrix,RNNState s,Expression w1dt)
     
 ## learner
 
