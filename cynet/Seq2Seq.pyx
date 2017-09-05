@@ -321,6 +321,179 @@ cdef class AttentionModel(EncoderDecoder):
         total_loss = esum(loss)
         return total_loss
 
+cdef class BiLSTMAttention(AttentionModel):
+    """Attention model that uses a bidirectional LSTM model on the source side, 
+    more in line with the original Bahdanau paper.
+
+    Follows the attention.py example distributed in dynet/examples/python
+    """
+
+    def __init__(self,int enc_layers,
+                     int dec_layers,
+                     int embedding_size,
+                     int enc_state_size,
+                     int dec_state_size,
+                     int enc_vocab_size,
+                     int dec_vocab_size,
+                     ):
+        """Creates a BiLSTMAttention model instance 
+
+        Note : this constructor doesn't inherit from the previous ones, 
+        since it changes a few things, such as the how the decoder RNN 
+        work. This should be generalized more...
+        
+        :param enc_layers: the number of encoder layers 
+        :param dec_layers: the number of decoder layers 
+        :param enc_state_size: the size of the encoder state 
+        :param dec_state_size: the size of the decoder state size 
+        :param enc_vocab_size: the size of the encoder vocabulary 
+        :param dec_vocab_size: the size of the decoder vocabulary
+        """
+        self.model = ParameterCollection()
+
+        ## embedding parameters 
+        self.enc_embeddings = self.model.add_lookup_parameters((enc_vocab_size,embedding_size))
+        self.dec_embeddings = self.model.add_lookup_parameters((dec_vocab_size,embedding_size))
+
+        ## RNN encode and decoder models 
+        self.enc_rnn     = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
+        self.dec_rnn     = LSTMBuilder(dec_layers,enc_state_size*2+embedding_size,dec_state_size,self.model)
+        ## the reverse RNN
+        self.enc_bwd_rnn = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
+        
+        ## output layer and bias for decoder RNN
+        self.output_w = self.model.add_parameters((dec_vocab_size,dec_state_size))
+        self.output_b = self.model.add_parameters((dec_vocab_size))
+
+        ## attention stuff
+        self.attention_w1 = self.model.add_parameters((enc_state_size,enc_state_size*2))
+        self.attention_w2 = self.model.add_parameters((enc_state_size,enc_state_size*enc_layers*2))
+        self.attention_v = self.model.add_parameters((1,enc_state_size))
+        self.enc_state_size = enc_state_size
+
+    cdef list _run_enc_rnn(self,RNNState init_state,list input_vecs):
+        """Run the encoder RNN with some initial state and input vector 
+
+        :param init_state: the initial state 
+        :param input_vecs: the input vectors
+        """
+        cdef RNNState s = init_state
+        cdef list states,rnn_outputs
+
+        # ## cythonize this?
+        states = s.add_inputs(input_vecs)
+        rnn_outputs = [<Expression>st.output() for st in states]
+        return rnn_outputs
+
+    cdef Expression _bi_attend(self,Expression input_matrix,RNNState s,Expression w1dt):
+        """Playing around with the 
+
+        :param input_matrix: the input "annotations" in matrix form 
+        :param s: the decoder current state 
+        :param w1dt: 
+        """
+        cdef Parameters w2_o = self.attention_w2
+        cdef Parameters v_o = self.attention_v
+        cdef Expression w2,v,w2dt,unormed,normed,context
+
+        w2 = w2_o.expr(True)
+        v = v_o.expr(True)
+        w2dt = w2*concatenate(list(s.s()))
+        unormed = transpose(v*tanh(colwise_add(w1dt,w2dt)))
+        normed = softmax(unormed)
+        context = input_matrix*normed
+        return context
+        
+
+    cdef list _encode_string(self,list embeddings):
+        """Get the representationf for the input by running through RNN
+
+        :param embeddings: the 
+        """
+        cdef LSTMBuilder enc_rnn = self.enc_rnn
+        cdef LSTMBuilder enc_bwd_rnn = self.enc_bwd_rnn
+        cdef RNNState initial_state = enc_rnn.initial_state()
+        cdef RNNState bwd_initial_state = enc_bwd_rnn.initial_state()
+        cdef list fw_hidden_states,bwd_hidden_states
+        cdef list vectors,sentence_rev = list(reversed(embeddings))
+        cdef int i,vsize = len(embeddings)
+        cdef Expression con 
+
+        ## run forward
+        fw_hidden_states = self._run_enc_rnn(initial_state,embeddings)
+        ## run backward and reverse
+        bwd_hidden_states = self._run_enc_rnn(bwd_initial_state,sentence_rev)
+        bwd_hidden_states = list(reversed(bwd_hidden_states))
+
+        ## create the final vectors
+        vectors = []
+        for i in range(vsize):
+            con = concatenate([fw_hidden_states[i],bwd_hidden_states[i]])
+            vectors.append(con)
+        return vectors
+
+    cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
+        """Compute loss for a given input and output
+
+        :param x_bold: input representation 
+        :param y_bold: the output representation 
+        """
+        cdef list x_encoded,loss = []
+        cdef LSTMBuilder dec_rnn = self.dec_rnn
+        cdef RNNState rnn_state
+        cdef int i,w,zlen
+        cdef Expression probs,loss_expr,total_loss
+        cdef int enc_state_size = self.enc_state_size
+        cdef list encoded,actual_seq
+
+        ## embedding on the target side 
+        cdef Expression last_embed,input_mat
+
+        ## parameterrs
+        cdef Parameters w1_o = self.attention_w1
+        cdef Parameters output_w = self.output_w
+        cdef Parameters output_b = self.output_b
+        cdef Expression w1,w1dt,vector,weight,b,out_vector
+
+        ## renew the computation graph directly 
+        cg.renew(False,False,None)
+
+        ## parameter expressions
+        w1 = w1_o.expr(True)
+        weight = output_w.expr(True)
+        b = output_b.expr(True)
+        
+        ## embed input x and run RNNs in both directions 
+        x_encoded = self._embed_x(x,cg)
+        encoded = self._encode_string(x_encoded)
+        ## create matrix of input vectors 
+        input_mat = concatenate_cols(encoded)
+
+        ## embed output z
+        z_encoded = self._embed_z(z,cg)
+        zlen = len(z_encoded)
+        last_embed = <Expression>z_encoded[0]
+
+        ## rnn initial state
+        rnn_state = dec_rnn.initial_state().add_input(concatenate([cg.inputVector(enc_state_size*2),last_embed]))
+
+        ## rebuild sequence without oov words (to match the embeddings list)
+        actual_seq = [i for i in z if i != -1]
+        
+        ## note : ignores unknown words 
+        for w in range(zlen):
+            w1dt = w1*input_mat
+            vector = dy.concatenate([self._bi_attend(input_mat, rnn_state, w1dt), last_embed])
+            rnn_state = rnn_state.add_input(vector)
+            out_vector = weight*rnn_state.output()+b
+            probs = softmax(out_vector)
+            loss_expr = -log(cg.outputPicker(probs,actual_seq[w],0))
+            loss.append(loss_expr)
+            last_embed = z_encoded[w]
+
+        total_loss = esum(loss)
+        return total_loss    
+
 ## learner class
 
 cdef class Seq2SeqLearner(LoggableClass):
@@ -391,14 +564,11 @@ cdef class Seq2SeqLearner(LoggableClass):
             
             ## go through each data point 
             for data_point in range(data_size):
-
-                ## renew the computation graph
-
+                
                 ## compute loss and back propogate
                 loss = model.get_loss(source[data_point],target[data_point],cg)
                 loss_value = loss.value()
                 loss.backward()
-
                 epoch_loss += loss_value 
                 ## do online update 
                 trainer.update()
@@ -443,159 +613,6 @@ cdef class Seq2SeqLearner(LoggableClass):
 
         return cls(trainer,model,train_data,valid_data,symbol_table)
 
-cdef class BiLSTMAttention(AttentionModel):
-    """Attention model that uses a bidirectional LSTM model on the source side, 
-    more in line with the original Bahdanau paper.
-
-    Follows the attention.py example distributed in dynet/examples/python
-    """
-
-    def __init__(self,int enc_layers,
-                     int dec_layers,
-                     int embedding_size,
-                     int enc_state_size,
-                     int dec_state_size,
-                     int enc_vocab_size,
-                     int dec_vocab_size,
-                     ):
-        """Creates a BiLSTMAttention model instance 
-
-        Note : this constructor doesn't inherit from the previous ones, 
-        since it changes a few things, such as the how the decoder RNN 
-        work. This should be generalized more...
-        
-        :param enc_layers: the number of encoder layers 
-        :param dec_layers: the number of decoder layers 
-        :param enc_state_size: the size of the encoder state 
-        :param dec_state_size: the size of the decoder state size 
-        :param enc_vocab_size: the size of the encoder vocabulary 
-        :param dec_vocab_size: the size of the decoder vocabulary
-        """
-        self.model = ParameterCollection()
-
-        ## embedding parameters 
-        self.enc_embeddings = self.model.add_lookup_parameters((enc_vocab_size,embedding_size))
-        self.dec_embeddings = self.model.add_lookup_parameters((dec_vocab_size,embedding_size))
-
-        ## RNN encode and decoder models 
-        self.enc_rnn     = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
-        self.dec_rnn     = LSTMBuilder(dec_layers,enc_state_size*2+embedding_size,dec_state_size,self.model)
-        ## the reverse RNN
-        self.enc_bwd_rnn = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
-        
-        ## output layer and bias for decoder RNN
-        self.output_w = self.model.add_parameters((dec_vocab_size,dec_state_size))
-        self.output_b = self.model.add_parameters((dec_vocab_size))
-
-        ## attention stuff
-        self.attention_w1 = self.model.add_parameters((enc_state_size,enc_state_size*2))
-        self.attention_w2 = self.model.add_parameters((enc_state_size,enc_state_size*enc_layers*2))
-        self.attention_v = self.model.add_parameters((1,enc_state_size))
-        self.enc_state_size = enc_state_size
-
-    cdef Expression _bi_attend(self,Expression input_matrix,RNNState s,Expression w1dt):
-        """Playing around with the 
-
-        :param input_matrix: the input "annotations" in matrix form 
-        :param s: the decoder current state 
-        :param w1dt: 
-        """
-        cdef Parameters w2_o = self.attention_w2
-        cdef Parameters v_o = self.attention_v
-        cdef Expression w2,v,w2dt,unormed,normed,context
-
-        w2 = w2_o.expr(True)
-        v = v_o.expr(True)
-        w2dt = w2*concatenate(list(s.s()))
-        unormed = transpose(v*tanh(colwise_add(w1dt,w2dt)))
-        normed = softmax(unormed)
-        context = input_matrix*normed
-        return context
-        
-
-    cdef list _encode_string(self,list embeddings):
-        """Get the representationf for the input by running through RNN
-
-        :param embeddings: the 
-        """
-        cdef LSTMBuilder enc_rnn = self.enc_rnn
-        cdef LSTMBuilder enc_bwd_rnn = self.enc_bwd_rnn
-        cdef RNNState initial_state = enc_rnn.initial_state()
-        cdef RNNState bwd_initial_state = enc_bwd_rnn.initial_state()
-        cdef list fw_hidden_states,bwd_hidden_states
-        cdef list vectors,sentence_rev = list(reversed(embeddings))
-        cdef int i,vsize = len(embeddings)
-        cdef Expression con 
-
-        ## run forward
-        fw_hidden_states = self._run_enc_rnn(initial_state,embeddings)
-        ## run backward and reverse
-        bwd_hidden_states = self._run_enc_rnn(initial_state,sentence_rev)
-        bwd_hidden_states = list(reversed(bwd_hidden_states))
-
-        ## create the final vectors
-        vectors = []
-        for i in range(vsize):
-            con = concatenate([fw_hidden_states[i],bwd_hidden_states[i]])
-            vectors.append(con)
-        return vectors
-
-    cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
-        """Compute loss for a given input and output
-
-        :param x_bold: input representation 
-        :param y_bold: the output representation 
-        """
-        cdef list x_encoded,loss = []
-        cdef LSTMBuilder dec_rnn = self.dec_rnn
-        cdef RNNState rnn_state
-        cdef int i,w,zlen
-        cdef Expression probs,loss_expr,total_loss
-        cdef int enc_state_size = self.enc_state_size
-        cdef list encoded,actual_seq
-
-        ## embedding on the target side 
-        cdef Expression last_embed,input_mat
-
-        ## parameterrs
-        cdef Parameters w1_o = self.attention_w1
-        cdef Expression w1,w1dt,vector
-
-        ## renew the computation graph directly 
-        cg.renew(False,False,None)
-
-        ## 
-        w1 = w1_o.expr(True)
-        
-        ## embed input x and run RNNs in both directions 
-        x_encoded = self._embed_x(x,cg)
-        encoded = self._encode_string(x_encoded)
-        ## create matrix of input vectors 
-        input_mat = concatenate_cols(encoded)
-
-        ## embed output z
-        z_encoded = self._embed_z(z,cg)
-        zlen = len(z_encoded)
-        last_embed = <Expression>z_encoded[0]
-
-        ## rnn initial state
-        rnn_state = dec_rnn.initial_state().add_input(concatenate([cg.inputVector(enc_state_size*2),last_embed]))
-
-        ## rebuild sequence without oov words (to match the embeddings list)
-        actual_seq = [i for i in z if i != -1]
-        
-        ## note : ignores unknown words 
-        for w in range(zlen):
-            w1dt = w1*input_mat
-            vector = dy.concatenate([self._bi_attend(input_mat, rnn_state, w1dt), last_embed])
-            rnn_state.add_input(vector)
-            probs = self._get_probs(rnn_state.output())
-            loss_expr = -log(cg.outputPicker(probs,actual_seq[w],0))
-            loss.append(loss_expr)
-            last_embed = z_encoded[w]
-            
-        total_loss = esum(loss)
-        return total_loss
 
 
 ## helper classes

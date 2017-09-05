@@ -9,21 +9,10 @@ from cynet.Seq2Seq import ParallelDataset,SymbolTable
 
 __all__ = [
     "build_data",
-    "DataManager",
 ]
 
 util_logger = logging.getLogger('cynet.util')
 
-class DataManager(object):
-    """General class for storing lexical info, symbol tables, parallel data ..."""
-    
-    def __init__(self,vocab_size,source,target,symbol_map):
-        """Creates a DataManger instance"""        
-        self.vocab_size = vocab_size
-        self.source = source
-        self.target = target
-        self.symbol_map = symbol_map
-    
 def __build_data(config):
     """Build data for running the seq2seq models
 
@@ -68,6 +57,26 @@ def __build_demo_data(config):
     table = SymbolTable(char2int,char2int)
 
     return (train_data,valid_data,table)
+
+def __build_demo_data2(config):
+    """Data for running the second demo"""
+    eos = "<EOS>"
+    characters = list("abcdefghijklmnopqrstuvwxyz ")
+    characters.append(eos)
+    char2int = {c:i for i,c in enumerate(characters)}
+
+    train_set = [("it is working","it is working")]
+
+    ## training data
+    source,target = zip(*train_set)
+    source = np.array([np.array([char2int[w] for w in ["<EOS>"]+list(i)+["<EOS>"]],dtype=np.int32) for i in source])
+    target = np.array([np.array([char2int[w] for w in ["<EOS>"]+list(i)+["<EOS>"]],dtype=np.int32) for i in target])
+
+    
+    train_data = ParallelDataset(source,target)
+    table = SymbolTable(char2int,char2int)
+    valid = ParallelDataset.make_empty()
+    return (train_data,valid,table)
 
 def __read_data(path,symbols=None,lowercase=True):
     """Read the data and extract a symbol map
@@ -144,6 +153,9 @@ def build_data(config):
 
     if config.wdir:
         return __build_wdir(config)
+
+    elif config.demo_data2:
+        return __build_demo_data2(config)
     
     elif config.demo_data:
         return __build_demo_data(config)
@@ -200,6 +212,13 @@ def params(config):
         type=str,
         default="data",
         help="The name of the data [default='data']"
+    )
+
+    util_group.add_option(
+        "--demo_data2",dest="demo_data2",
+        default=False,
+        action="store_true",
+        help="Run the second demo [default='data']"
     )
 
     config.add_option_group(util_group)
