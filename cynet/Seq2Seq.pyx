@@ -514,6 +514,19 @@ cdef class Seq2SeqLearner(LoggableClass):
         self.stable  = stable
         self.cg = get_cg()
 
+    def log_epoch(self,inum,itime,tloss,vtime,vloss):
+        """Log information related to the epoch
+
+        :param inum: iteration number
+        :param itime: the iteration time 
+        :param tloss: the training loss 
+        :param vtime: validation time (if available)
+        :param vloss: validation lost (if available) 
+        :rtype: None
+        """
+        self.logger.info('Finished iteration %d in %s seconds, ran val in %s seconds, train_loss=%s,val loss=%s' %\
+                             (inum,str(itime),str(vtime),str(tloss),str(vloss)))
+
     ## training methods
     cpdef void train(self,config):
         """Trian the model using data 
@@ -551,6 +564,7 @@ cdef class Seq2SeqLearner(LoggableClass):
         
         cdef Expression loss
         cdef double loss_value,epoch_loss,val_loss
+        cdef double vtime,itime,vstart
 
         ## neural network model
         cdef Seq2SeqModel model = <Seq2SeqModel>self.model
@@ -573,17 +587,19 @@ cdef class Seq2SeqLearner(LoggableClass):
                 ## do online update 
                 trainer.update()
 
+            ## after epoch information 
             trainer.update_epoch(1.0)
-            
-            ## evaluate on validation?
+            val_loss = 0.0
+            vtime    = 0.0
+            itime = time.time()-estart
+
+            ## compute loss on validation 
             if not valid.is_empty:
-                val_loss = compute_val_loss(model,valid,cg)
                 vstart = time.time()
-                self.logger.info('Finished iteration %d after %f seconds, ran val test in %f seconds, train loss=%f, val loss=%f' %\
-                                    (epoch+1,time.time()-estart,time.time()-vstart,epoch_loss,val_loss))
-            else: 
-                self.logger.info('Finished iteration %d after %f seconds, train loss=%f, no dev. data!' %\
-                                    (epoch+1,time.time()-estart,epoch_loss))
+                val_loss = compute_val_loss(model,valid,cg)
+                vtime = time.time()-vstart
+
+            self.log_epoch(epoch+1,itime,epoch_loss,vtime,val_loss)
 
     ## builder
 
