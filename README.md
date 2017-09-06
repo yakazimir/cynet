@@ -42,12 +42,12 @@ following:
 
 The run with some new data, you must first have training data in some
 directory, marked as {name\_of\_data}.e (source data) and
-{\name_of\_data}.f (target data), and optionally validation data
+{name_of\_data}.f (target data), and optionally validation data
 marked as {name\_of\_data}\_{val}.{e,f}. Then run the following (this
 example uses a bilstm attention model):
 
     ./run_cynet --model bilstm --wdir /path/to/data/ --name
-    name\_of\_data --logging {info,debug,...} [--options]
+    name_of_data --logging {info,debug,...} [--options]
 
 Profiling
 -----------------
