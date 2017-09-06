@@ -46,8 +46,7 @@ directory, marked as {name\_of\_data}.e (source data) and
 marked as {name\_of\_data}\_{val}.{e,f}. Then run the following (this
 example uses a bilstm attention model):
 
-    ./run_cynet --model bilstm --wdir /path/to/data/ --name
-    name_of_data --logging {info,debug,...} [--options]
+    ./run_cynet --model bilstm --wdir /path/to/data/ --name name_of_data --logging {info,debug,...} [--options]
 
 Profiling
 -----------------
