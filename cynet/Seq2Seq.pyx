@@ -310,8 +310,11 @@ cdef class AttentionModel(EncoderDecoder):
         rnn_state = dec_rnn.initial_state().add_input(cg.inputVector(enc_state_size))
 
         for w in range(zlen):
+            
             ## skip over unknown words 
             if z[w] == -1: continue
+
+            ## attention stuff 
             attended_encoding = self._attend(encoded,rnn_state)
             rnn_state = rnn_state.add_input(attended_encoding)
             probs = self._get_probs(rnn_state.output())
@@ -403,7 +406,6 @@ cdef class BiLSTMAttention(AttentionModel):
         normed = softmax(unormed)
         context = input_matrix*normed
         return context
-        
 
     cdef list _encode_string(self,list embeddings):
         """Get the representationf for the input by running through RNN
@@ -575,7 +577,7 @@ cdef class Seq2SeqLearner(LoggableClass):
             epoch_loss = 0.0
 
             ## shuffle dataset?
-            
+                        
             ## go through each data point 
             for data_point in range(data_size):
                 
@@ -598,6 +600,8 @@ cdef class Seq2SeqLearner(LoggableClass):
                 vstart = time.time()
                 val_loss = compute_val_loss(model,valid,cg)
                 vtime = time.time()-vstart
+
+                ## early stopping?
 
             self.log_epoch(epoch+1,itime,epoch_loss,vtime,val_loss)
 
@@ -626,9 +630,7 @@ cdef class Seq2SeqLearner(LoggableClass):
 
         # ## find the desired trainer
         trainer = TrainerModel(config,model.model)
-
         return cls(trainer,model,train_data,valid_data,symbol_table)
-
 
 
 ## helper classes
@@ -849,6 +851,13 @@ def params(config):
         type=str,
         default="simple",
         help="The type of seq2seq model to use [default=simple]"
+    )
+
+    gen_group.add_option(
+        "--lstm_layers",dest="lstm_layers",
+        type=int,
+        default=1,
+        help="The number of lstm layers to use [default=simple]"
     )
 
     config.add_option_group(gen_group)
