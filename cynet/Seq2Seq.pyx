@@ -570,6 +570,7 @@ cdef class Seq2SeqLearner(LoggableClass):
 
         ## neural network model
         cdef Seq2SeqModel model = <Seq2SeqModel>self.model
+        cdef int last_improvement,prev_loss = 0
 
         ## overall iteration 
         for epoch in range(epochs):
@@ -602,6 +603,14 @@ cdef class Seq2SeqLearner(LoggableClass):
                 vtime = time.time()-vstart
 
                 ## early stopping?
+                if val_loss < prev_loss:
+                    last_improvement = 0
+                else:
+                    last_improvement += 1
+                    
+                ## stop the training loop 
+                if last_improvement >= 5: return
+                prev_loss = val_loss
 
             self.log_epoch(epoch+1,itime,epoch_loss,vtime,val_loss)
 
