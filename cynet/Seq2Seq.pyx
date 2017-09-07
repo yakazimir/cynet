@@ -604,16 +604,16 @@ cdef class Seq2SeqLearner(LoggableClass):
                 vtime = time.time()-vstart
 
                 ## early stopping?
-                if val_loss < prev_loss:
-                    last_improvement = 0
-                else:
-                    last_improvement += 1
+                # if val_loss < prev_loss:
+                #     last_improvement = 0
+                # else:
+                #     last_improvement += 1
                     
-                ## stop the training loop 
-                if last_improvement >= 5:
-                    self.logger.info('Stopping early after %d epochs' % epoch)
-                    return 1
-                prev_loss = val_loss
+                # ## stop the training loop 
+                # if last_improvement >= 5:
+                #     self.logger.info('Stopping early after %d epochs' % epoch)
+                #     return 1
+                # prev_loss = val_loss
 
             self.log_epoch(epoch+1,itime,epoch_loss,vtime,val_loss)
 
