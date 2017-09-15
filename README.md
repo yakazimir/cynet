@@ -26,14 +26,16 @@ very nice article: https://talbaumel.github.io/attention/
 Quick Start 
 -----------------
 
-Can be built in place by typing the following:
+Running cynet requires first installing Dynet (which itself depends on
+Eigen). 
+
+Once Dynet is installed, cynet can be built in place by typing the following:
 
     python setup.py build_ext --inplace --dynet=/path/to/dynet --eigen=/path/to/eigen --boost=/path/to/boost. 
 
 Then run the following:
 
     ./run_cynet [option] [--help]
-
 
 To run on the example dataset used by Tal (above) just do the
 following:
