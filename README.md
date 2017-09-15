@@ -27,7 +27,7 @@ Quick Start
 -----------------
 
 Running cynet requires first installing Dynet (which itself depends on
-Eigen). 
+Eigen). See details here: https://github.com/clab/dynet
 
 Once Dynet is installed, cynet can be built in place by typing the following:
 
