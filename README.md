@@ -50,6 +50,12 @@ example uses a bilstm attention model):
 
     ./run_cynet --model bilstm --wdir /path/to/data/ --name name_of_data --logging {info,debug,...} [--options]
 
+
+To see all command line options and network settings, type the
+following:
+
+    ./run_cynet --help 
+
 Profiling
 -----------------
 
