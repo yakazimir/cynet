@@ -494,7 +494,73 @@ cdef class BiLSTMAttention(AttentionModel):
             last_embed = z_encoded[w]
 
         total_loss = esum(loss)
-        return total_loss    
+        return total_loss
+
+cdef class LuongAttention(BiLSTMAttention):
+    """An attempt to implement the Luong et al. simplified model of attention"""
+
+    cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
+        """Compute loss for a given input and output
+
+        :param x_bold: input representation 
+        :param y_bold: the output representation 
+        """
+        cdef list x_encoded,loss = []
+        cdef LSTMBuilder dec_rnn = self.dec_rnn
+        cdef RNNState rnn_state
+        cdef int i,w,zlen
+        cdef Expression probs,loss_expr,total_loss
+        cdef int enc_state_size = self.enc_state_size
+        cdef list encoded,actual_seq
+
+        ## embedding on the target side 
+        cdef Expression last_embed,input_mat
+
+        ## parameterrs
+        cdef Parameters w1_o = self.attention_w1
+        cdef Parameters output_w = self.output_w
+        cdef Parameters output_b = self.output_b
+        cdef Expression w1,w1dt,vector,weight,b,out_vector
+
+        ## renew the computation graph directly 
+        cg.renew(False,False,None)
+
+        ## parameter expressions
+        w1 = w1_o.expr(True)
+        weight = output_w.expr(True)
+        b = output_b.expr(True)
+        
+        ## embed input x and run RNNs in both directions 
+        x_encoded = self._embed_x(x,cg)
+        encoded = self._encode_string(x_encoded)
+        ## create matrix of input vectors 
+        input_mat = concatenate_cols(encoded)
+
+        ## embed output z
+        z_encoded = self._embed_z(z,cg)
+        zlen = len(z_encoded)
+        last_embed = <Expression>z_encoded[0]
+
+        ## rnn initial state
+        rnn_state = dec_rnn.initial_state().add_input(concatenate([cg.inputVector(enc_state_size*2),last_embed]))
+
+        ## rebuild sequence without oov words (to match the embeddings list)
+        actual_seq = [i for i in z if i != -1]
+        
+        ## note : ignores unknown words 
+        for w in range(zlen):
+            w1dt = w1*input_mat
+            vector = dy.concatenate([self._bi_attend(input_mat, rnn_state, w1dt), last_embed])
+            rnn_state = rnn_state.add_input(vector)
+            out_vector = weight*rnn_state.output()+b
+            probs = softmax(out_vector)
+            loss_expr = -log(cg.outputPicker(probs,actual_seq[w],0))
+            loss.append(loss_expr)
+            last_embed = z_encoded[w]
+
+        total_loss = esum(loss)
+        return total_loss
+    
 
 ## learner class
 
@@ -735,6 +801,7 @@ MODELS = {
     "simple"    : EncoderDecoder,
     "attention" : AttentionModel,
     "bilstm"    : BiLSTMAttention,
+    "luong"     : LuongAttention,
 }
 
 TRAINERS = {
