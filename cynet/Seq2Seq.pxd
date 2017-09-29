@@ -49,7 +49,7 @@ cdef class BiLSTMAttention(AttentionModel):
                                    Expression w1dt)
 
 cdef class LuongAttention(BiLSTMAttention):
-    pass
+    cdef Parameters output_final
     
 ## learner
 

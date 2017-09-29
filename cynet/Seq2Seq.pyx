@@ -498,6 +498,51 @@ cdef class BiLSTMAttention(AttentionModel):
 
 cdef class LuongAttention(BiLSTMAttention):
     """An attempt to implement the Luong et al. simplified model of attention"""
+    def __init__(self,int enc_layers,
+                     int dec_layers,
+                     int embedding_size,
+                     int enc_state_size,
+                     int dec_state_size,
+                     int enc_vocab_size,
+                     int dec_vocab_size,
+                     ):
+        """Creates a BiLSTMAttention model instance 
+
+        Note : this constructor doesn't inherit from the previous ones, 
+        since it changes a few things, such as the how the decoder RNN 
+        work. This should be generalized more...
+        
+        :param enc_layers: the number of encoder layers 
+        :param dec_layers: the number of decoder layers 
+        :param enc_state_size: the size of the encoder state 
+        :param dec_state_size: the size of the decoder state size 
+        :param enc_vocab_size: the size of the encoder vocabulary 
+        :param dec_vocab_size: the size of the decoder vocabulary
+        """
+        self.model = ParameterCollection()
+
+        ## embedding parameters 
+        self.enc_embeddings = self.model.add_lookup_parameters((enc_vocab_size,embedding_size))
+        self.dec_embeddings = self.model.add_lookup_parameters((dec_vocab_size,embedding_size))
+
+        ## RNN encode and decoder models 
+        self.enc_rnn     = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
+        self.dec_rnn     = LSTMBuilder(dec_layers,enc_state_size*2+embedding_size,dec_state_size,self.model)
+        ## the reverse RNN
+        self.enc_bwd_rnn = LSTMBuilder(enc_layers,embedding_size,enc_state_size,self.model)
+        
+        ## output layer and bias for decoder RNN
+        self.output_w = self.model.add_parameters((dec_vocab_size,dec_state_size+(enc_state_size*2)))
+        self.output_b = self.model.add_parameters((dec_vocab_size))
+
+        ## one more mlp
+        self.output_final = self.model.add_parameters((dec_vocab_size,dec_vocab_size))
+        
+        ## attention stuff
+        self.attention_w1 = self.model.add_parameters((enc_state_size,enc_state_size*2))
+        self.attention_w2 = self.model.add_parameters((enc_state_size,enc_state_size*enc_layers*2))
+        self.attention_v = self.model.add_parameters((1,enc_state_size))
+        self.enc_state_size = enc_state_size
 
     cdef Expression get_loss(self, int[:] x, int[:] z,ComputationGraph cg):
         """Compute loss for a given input and output
@@ -520,15 +565,19 @@ cdef class LuongAttention(BiLSTMAttention):
         cdef Parameters w1_o = self.attention_w1
         cdef Parameters output_w = self.output_w
         cdef Parameters output_b = self.output_b
-        cdef Expression w1,w1dt,vector,weight,b,out_vector
+        cdef Parameters output_f = self.output_final
+        cdef Expression w1,w1dt,vector,weight,b,out_vector,context_vector,joined
+        cdef Expression ofinal
 
         ## renew the computation graph directly 
         cg.renew(False,False,None)
+
 
         ## parameter expressions
         w1 = w1_o.expr(True)
         weight = output_w.expr(True)
         b = output_b.expr(True)
+        ofinal = output_f.expr(True)
         
         ## embed input x and run RNNs in both directions 
         x_encoded = self._embed_x(x,cg)
@@ -550,10 +599,17 @@ cdef class LuongAttention(BiLSTMAttention):
         ## note : ignores unknown words 
         for w in range(zlen):
             w1dt = w1*input_mat
-            vector = dy.concatenate([self._bi_attend(input_mat, rnn_state, w1dt), last_embed])
+
+            ## c_{i}
+            context_vector = self._bi_attend(input_mat,rnn_state,w1dt)
+            vector = dy.concatenate([context_vector, last_embed])
             rnn_state = rnn_state.add_input(vector)
-            out_vector = weight*rnn_state.output()+b
-            probs = softmax(out_vector)
+            ## g_{i} = LSTM(g_{i-1},z_{i-1},c_{i})
+            out_vector = rnn_state.output()
+            ## W_{0} + tanh( W * [ g_{i} ; c_{i} ] + b )
+            joined = ofinal*tanh(weight*dy.concatenate([out_vector,context_vector])+b)
+            # softmax()
+            probs = softmax(joined)
             loss_expr = -log(cg.outputPicker(probs,actual_seq[w],0))
             loss.append(loss_expr)
             last_embed = z_encoded[w]
