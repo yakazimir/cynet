@@ -53,7 +53,7 @@ cdef class LoggableClass:
         return logging.getLogger(level)
 
     @classmethod
-    def config_config(cls,config):
+    def from_config(cls,config):
         """Create an instance from configuration 
 
         """
@@ -537,7 +537,7 @@ cdef class LuongAttention(BiLSTMAttention):
 
         ## one more mlp
         self.output_final = self.model.add_parameters((dec_vocab_size,dec_vocab_size))
-        
+
         ## attention stuff
         self.attention_w1 = self.model.add_parameters((enc_state_size,enc_state_size*2))
         self.attention_w2 = self.model.add_parameters((enc_state_size,enc_state_size*enc_layers*2))
